@@ -209,7 +209,6 @@
             dashboardTab: 'articles', 
             articles: [],
             words: [],
-            quotes: [],
             currentArticle: null,
             selectedText: '',
             readerFontSize: 'text-base', 
@@ -310,7 +309,6 @@
         const loadLocalData = () => {
             state.articles = JSON.parse(safeLocal.get('mag_articles') || '[]').sort((a,b) => b.createdAt - a.createdAt);
             state.words = JSON.parse(safeLocal.get('mag_words') || '[]').filter(w => w.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
-            state.quotes = JSON.parse(safeLocal.get('mag_quotes') || '[]').filter(q => q.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
         };
 
         const setupFirestoreListeners = () => {
@@ -337,7 +335,7 @@
                 });
                 state.unsubs.push(unsubArticles);
 
-                const wordsRef = collection(db, 'artifacts', appId, 'users', state.user.uid, 'saved_words');
+                const wordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'saved_words');
                 const unsubWords = onSnapshot(wordsRef, (snapshot) => {
                     const fetchedWords = [];
                     snapshot.forEach(doc => {
@@ -348,18 +346,6 @@
                     if(state.view === 'dashboard') updateDashboardContent();
                 });
                 state.unsubs.push(unsubWords);
-
-                const quotesRef = collection(db, 'artifacts', appId, 'users', state.user.uid, 'saved_quotes');
-                const unsubQuotes = onSnapshot(quotesRef, (snapshot) => {
-                    const fetchedQuotes = [];
-                    snapshot.forEach(doc => {
-                        if(doc.data().profile === state.profile) fetchedQuotes.push({ id: doc.id, ...doc.data() });
-                    });
-                    fetchedQuotes.sort((a, b) => b.createdAt - a.createdAt);
-                    state.quotes = fetchedQuotes;
-                    if(state.view === 'dashboard') updateDashboardContent();
-                });
-                state.unsubs.push(unsubQuotes);
             } catch (error) {
                 console.error("Listener error:", error);
             }
@@ -406,22 +392,23 @@
             const itemObj = { text, translation, phonetics, partOfSpeech, profile: state.profile, articleId: state.currentArticle ? state.currentArticle.id : null, articleTitle: state.currentArticle ? state.currentArticle.title : 'Неизвестно', createdAt: Date.now() };
 
             if (isLocalMode) {
-                const key = type === 'word' ? 'mag_words' : 'mag_quotes';
-                const arr = JSON.parse(safeLocal.get(key) || '[]');
+                const arr = JSON.parse(safeLocal.get('mag_words') || '[]');
                 itemObj.id = 'loc_' + Date.now() + Math.random().toString(36).substring(2, 9);
                 arr.push(itemObj);
-                safeLocal.set(key, JSON.stringify(arr));
-                showToast(`Сохранено локально в ${type === 'word' ? 'Словарь' : 'Цитатник'}`);
+                safeLocal.set('mag_words', JSON.stringify(arr));
+                showToast(`Сохранено локально в Словарь`);
                 if(state.view === 'dashboard') setupFirestoreListeners();
                 return;
             }
 
-            const collectionName = type === 'word' ? 'saved_words' : 'saved_quotes';
-            const colRef = collection(db, 'artifacts', appId, 'users', state.user.uid, collectionName);
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'saved_words');
             try {
                 await addDoc(colRef, itemObj);
-                showToast(`Сохранено в ${type === 'word' ? 'Словарь' : 'Цитатник'}`);
-            } catch (error) { showToast("Ошибка сохранения."); }
+                showToast(`Сохранено в Словарь`);
+            } catch (error) { 
+                console.error("Ошибка сохранения в БД:", error);
+                showToast("Ошибка базы данных."); 
+            }
         };
 
         const deleteFromFirestore = async (type, docId) => {
@@ -445,17 +432,15 @@
              }
 
              if (isLocalMode) {
-                 const key = type === 'word' ? 'mag_words' : 'mag_quotes';
-                 let arr = JSON.parse(safeLocal.get(key) || '[]');
+                 let arr = JSON.parse(safeLocal.get('mag_words') || '[]');
                  arr = arr.filter(i => i.id !== docId);
-                 safeLocal.set(key, JSON.stringify(arr));
+                 safeLocal.set('mag_words', JSON.stringify(arr));
                  showToast("Удалено");
                  setupFirestoreListeners();
                  return;
              }
 
-             const collectionName = type === 'word' ? 'saved_words' : 'saved_quotes';
-             const docRef = doc(db, 'artifacts', appId, 'users', state.user.uid, collectionName, docId);
+             const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'saved_words', docId);
              try { await deleteDoc(docRef); showToast("Удалено"); } 
              catch(error) { showToast("Ошибка удаления"); }
         };
@@ -644,7 +629,7 @@
                 }
             } else {
                 try {
-                    const docRef = doc(db, 'artifacts', appId, 'users', state.user.uid, 'saved_words', wordId);
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'saved_words', wordId);
                     await setDoc(docRef, { translation: newTranslation }, { merge: true });
                 } catch (error) { showToast("Ошибка сохранения перевода"); }
             }
@@ -733,7 +718,7 @@
         };
 
         const updateDashboardTabsUI = () => {
-            ['articles', 'words', 'quotes'].forEach(t => {
+            ['articles', 'words'].forEach(t => {
                 const el = document.getElementById(`tab-${t}`);
                 if(!el) return;
                 if(t === state.dashboardTab) {
@@ -824,24 +809,6 @@
                     </div>
                 `;
             }
-            else if (state.dashboardTab === 'quotes') {
-                container.innerHTML = `
-                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        ${state.quotes.length === 0 ? `<div class="col-span-full">${emptyStateBlock("Нет цитат", "Сохраняйте интересные фразы из статей для повторения.")}</div>` : ''}
-                        ${state.quotes.map(q => `
-                            <div class="bg-white dark:bg-gray-800 p-6 md:p-8 rounded-xl border border-mag-border dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow relative group flex flex-col justify-between">
-                                <blockquote class="font-serif text-lg md:text-xl text-mag-text dark:text-gray-200 italic leading-relaxed mb-6">"${q.text}"</blockquote>
-                                <div class="flex justify-between items-end border-t border-mag-border dark:border-gray-700 pt-4 mt-auto">
-                                    <p class="text-xs text-mag-muted dark:text-gray-400 pr-2">${q.articleTitle}</p>
-                                    <button onclick="deleteItem('quote', '${q.id}')" class="text-gray-400 hover:text-red-500 transition-colors md:opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0">
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            }
         };
 
         const renderApp = () => {
@@ -896,9 +863,6 @@
                                 <button id="tab-articles" onclick="setDashboardTab('articles')" class="pb-3 px-1 text-sm font-semibold tracking-wider uppercase border-b-2 transition-colors whitespace-nowrap">Библиотека</button>
                                 <button id="tab-words" onclick="setDashboardTab('words')" class="pb-3 px-1 text-sm font-semibold tracking-wider uppercase border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap">
                                     Словарь <span class="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">${state.words.length}</span>
-                                </button>
-                                <button id="tab-quotes" onclick="setDashboardTab('quotes')" class="pb-3 px-1 text-sm font-semibold tracking-wider uppercase border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap">
-                                    Цитатник <span class="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">${state.quotes.length}</span>
                                 </button>
                             </div>
                             <button onclick="goAdmin()" class="mb-3 shrink-0 flex items-center justify-center sm:justify-start gap-2 text-sm text-mag-muted dark:text-gray-400 hover:text-mag-primary dark:hover:text-mag-primaryLight transition-colors px-4 py-2 rounded-lg hover:bg-mag-highlight/30 dark:hover:bg-gray-800 border border-mag-border dark:border-gray-700 sm:border-none bg-white dark:bg-gray-800 sm:bg-transparent w-full sm:w-auto self-end sm:self-auto">
