@@ -217,38 +217,38 @@
     </div>
 
     <div id="app" class="flex-grow flex flex-col w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
-        <div class="flex-grow flex flex-col items-center justify-center min-h-[50vh]">
+        <div class="flex-grow flex flex-col items-center justify-center min-h-[50vh]" id="loading-screen">
             <svg class="animate-spin h-10 w-10 text-mag-primary dark:text-mag-primaryLight mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
             <p class="text-mag-muted dark:text-gray-400 font-medium">Загрузка Magazine Learner...</p>
         </div>
     </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    <!-- Резервный таймер-предохранитель, если WebView Telegram сломал загрузку модулей (Mini App Failsafe) -->
+    <script>
+        window.fallbackFailsafe = setTimeout(function() {
+            var loader = document.getElementById('loading-screen');
+            if (loader) {
+                loader.innerHTML = '<div class="text-center fade-in"><p class="text-mag-muted dark:text-gray-400 mb-4">Браузер блокирует доступ к облаку.</p><button onclick="window.forceLocalInit()" class="px-6 py-2.5 bg-mag-primary text-white rounded-full font-medium shadow-sm active:scale-95 transition-transform">Перейти в Локальный Режим</button></div>';
+            }
+        }, 6000);
+    </script>
 
+    <script type="module">
         let isLocalMode = false;
+        
+        // Глобальные переменные для базы
+        let app, auth, db;
+        let collection, doc, setDoc, deleteDoc, onSnapshot, addDoc;
+        
+        const appId = "1:364208723805:web:3639e2ddde1f4e84277ab4";
         const firebaseConfig = {
             apiKey: "AIzaSyD7A24gqyocYPVkiMtRFWHoSDRp4egnGh8",
             authDomain: "magazine-learner.firebaseapp.com",
             projectId: "magazine-learner",
             storageBucket: "magazine-learner.firebasestorage.app",
             messagingSenderId: "364208723805",
-            appId: "1:364208723805:web:3639e2ddde1f4e84277ab4"
+            appId: appId
         };
-
-        const appId = firebaseConfig.appId;
-        let app, auth, db;
-        
-        try {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-        } catch(e) {
-            console.warn("Firebase Init fallback to Local Mode:", e);
-            isLocalMode = true;
-        }
 
         const state = {
             user: null,
@@ -285,7 +285,8 @@
             set: (key, val) => { try { localStorage.setItem(key, val); } catch(e) {} }
         };
 
-        const loadProfileAndNavigate = () => {
+        function loadProfileAndNavigate() {
+            clearTimeout(window.fallbackFailsafe); // Отменяем предохранитель, всё загрузилось
             const savedProfile = safeStorage.get('mag_profile');
             if (savedProfile) {
                 state.profile = savedProfile;
@@ -293,42 +294,63 @@
             } else {
                 navigateTo('auth');
             }
-        };
+        }
 
-        const initAuth = async () => {
-            if (isLocalMode || typeof auth === 'undefined' || !auth) {
-                console.warn("Forcing Local Mode due to environment restrictions (e.g. Telegram Mini App)");
-                isLocalMode = true;
-                state.user = { uid: 'local_user_123' };
-                loadProfileAndNavigate();
-                return;
-            }
-
+        // Запуск приложения через Динамические Импорты
+        async function bootApplication() {
             try {
+                // 1. Пытаемся динамически загрузить Firebase (перехватывает ошибки сети/CSP)
+                const fbApp = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
+                const fbAuth = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                const fbDb = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+
+                // Передаем методы в глобальные переменные
+                collection = fbDb.collection;
+                doc = fbDb.doc;
+                setDoc = fbDb.setDoc;
+                deleteDoc = fbDb.deleteDoc;
+                onSnapshot = fbDb.onSnapshot;
+                addDoc = fbDb.addDoc;
+
+                app = fbApp.initializeApp(firebaseConfig);
+                auth = fbAuth.getAuth(app);
+                db = fbDb.getFirestore(app);
+
+                // 2. Инициализация авторизации с ТАЙМАУТОМ (для зависших Telegram WebViews)
+                // Если база не отвечает за 3.5 секунды, принудительно падаем в Catch
+                const authTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram WebView Auth Timeout")), 3500));
+                
+                let authPromise;
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    try {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } catch (customTokenError) {
-                        await signInAnonymously(auth);
-                    }
+                    authPromise = fbAuth.signInWithCustomToken(auth, __initial_auth_token).catch(() => fbAuth.signInAnonymously(auth));
                 } else {
-                    await signInAnonymously(auth);
+                    authPromise = fbAuth.signInAnonymously(auth);
                 }
 
-                onAuthStateChanged(auth, (user) => {
+                await Promise.race([authPromise, authTimeout]);
+
+                fbAuth.onAuthStateChanged(auth, (user) => {
                     if (isLocalMode) return;
                     state.user = user;
                     loadProfileAndNavigate();
                 });
+
             } catch (error) {
-                console.warn("Auth error, forcing local mode");
+                console.warn("Включаем Локальный Режим. Причина: ограничение браузера или таймаут.", error.message);
                 isLocalMode = true;
                 state.user = { uid: 'local_user_123' };
                 loadProfileAndNavigate();
             }
+        }
+
+        // Вызов в самом крайнем случае
+        window.forceLocalInit = () => {
+            isLocalMode = true;
+            state.user = { uid: 'local_user_123' };
+            loadProfileAndNavigate();
         };
 
-        const navigateTo = (view, data = null) => {
+        function navigateTo(view, data = null) {
             state.view = view;
             elements.tooltip.classList.add('hidden');
             elements.progressBarContainer.classList.add('hidden');
@@ -348,19 +370,19 @@
                 window.scrollTo(0, 0);
                 elements.progressBarContainer.classList.remove('hidden');
             }
-        };
+        }
 
-        const clearListeners = () => {
+        function clearListeners() {
             state.unsubs.forEach(unsub => unsub());
             state.unsubs = [];
-        };
+        }
 
-        const loadLocalData = () => {
+        function loadLocalData() {
             state.articles = JSON.parse(safeLocal.get('mag_articles') || '[]').sort((a,b) => b.createdAt - a.createdAt);
             state.words = JSON.parse(safeLocal.get('mag_words') || '[]').filter(w => w.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
-        };
+        }
 
-        const setupFirestoreListeners = () => {
+        function setupFirestoreListeners() {
             if (!state.user) return;
             clearListeners();
 
@@ -377,7 +399,7 @@
                 const articlesRef = collection(db, 'artifacts', appId, 'public', 'data', 'articles');
                 const unsubArticles = onSnapshot(articlesRef, (snapshot) => {
                     const fetchedArticles = [];
-                    snapshot.forEach(doc => fetchedArticles.push({ id: doc.id, ...doc.data() }));
+                    snapshot.forEach(d => fetchedArticles.push({ id: d.id, ...d.data() }));
                     fetchedArticles.sort((a, b) => b.createdAt - a.createdAt);
                     state.articles = fetchedArticles;
                     if(state.view === 'dashboard' && state.dashboardTab === 'articles') renderApp();
@@ -387,8 +409,8 @@
                 const wordsRef = collection(db, 'artifacts', appId, 'public', 'data', 'saved_words');
                 const unsubWords = onSnapshot(wordsRef, (snapshot) => {
                     const fetchedWords = [];
-                    snapshot.forEach(doc => {
-                        if(doc.data().profile === state.profile) fetchedWords.push({ id: doc.id, ...doc.data() });
+                    snapshot.forEach(d => {
+                        if(d.data().profile === state.profile) fetchedWords.push({ id: d.id, ...d.data() });
                     });
                     fetchedWords.sort((a, b) => b.createdAt - a.createdAt);
                     state.words = fetchedWords;
@@ -398,9 +420,9 @@
             } catch (error) {
                 console.error("Listener error:", error);
             }
-        };
+        }
 
-        const saveToFirestore = async (type, text) => {
+        async function saveToFirestore(type, text) {
             if (!state.user || !state.profile) return;
             
             elements.tooltip.classList.add('hidden');
@@ -458,9 +480,9 @@
                 console.error("Ошибка сохранения в БД:", error);
                 showToast("Ошибка базы данных."); 
             }
-        };
+        }
 
-        const deleteFromFirestore = async (type, docId) => {
+        async function deleteFromFirestore(type, docId) {
              if (!state.user) return;
              
              if (type === 'article') {
@@ -492,9 +514,9 @@
              const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'saved_words', docId);
              try { await deleteDoc(docRef); showToast("Удалено"); } 
              catch(error) { showToast("Ошибка удаления"); }
-        };
+        }
 
-        const publishArticle = async (title, content) => {
+        async function publishArticle(title, content) {
             if (!state.user) return showToast("Ошибка: вы не авторизованы.");
             
             const articleObj = { title, content, createdAt: Date.now(), authorProfile: state.profile };
@@ -518,10 +540,9 @@
                 console.error("ОШИБКА ПУБЛИКАЦИИ FIRESTORE:", error);
                 showToast("Ошибка публикации базы данных.");
             }
-        };
+        }
 
-        // Адаптированная плавная логика выделения текста
-        const handleSelection = () => {
+        function handleSelection() {
             if (state.view !== 'reader') return;
             
             setTimeout(() => {
@@ -544,7 +565,7 @@
                         const isMobile = window.innerWidth < 768; // Проверяем мобилку
 
                         if (!isMobile) {
-                            // ЛОГИКА ДЛЯ ПК: Показываем плавающее окно над выделенным текстом
+                            // ЛОГИКА ДЛЯ ПК
                             let leftPos = rect.left + window.scrollX + (rect.width / 2);
                             const padding = 15;
                             
@@ -560,14 +581,13 @@
                                 elements.tooltip.classList.remove('tooltip-bottom');
                             }
 
-                            // Инлайн стили для ПК
                             elements.tooltip.style.position = 'absolute';
                             elements.tooltip.style.top = `${topPos}px`;
                             elements.tooltip.style.left = `${leftPos}px`;
                             elements.tooltip.style.bottom = 'auto';
                             elements.tooltip.style.transform = 'translateX(-50%)';
                         } else {
-                            // ЛОГИКА ДЛЯ МОБИЛЬНЫХ: Очищаем позиционирование, CSS сделает Bottom Sheet
+                            // ЛОГИКА ДЛЯ МОБИЛЬНЫХ
                             elements.tooltip.style.position = '';
                             elements.tooltip.style.top = '';
                             elements.tooltip.style.left = '';
@@ -577,14 +597,13 @@
                         }
 
                         elements.tooltip.classList.add('tooltip-fade-in');
-                    }, 10); // Микро-задержка для рендера
+                    }, 10);
                 } else {
                     setTimeout(() => elements.tooltip.classList.add('hidden'), 100);
                 }
             }, 50);
-        };
+        }
 
-        // Защита от потери фокуса при клике по меню
         elements.tooltip.addEventListener('mousedown', (e) => e.preventDefault());
         elements.tooltip.addEventListener('touchstart', (e) => e.preventDefault(), {passive: false});
         
@@ -602,7 +621,6 @@
             if (state.view !== 'reader') return;
             clearTimeout(window.selectionTimeout);
             
-            // Плавная задержка 400мс: защищает от дерганий меню на телефонах
             window.selectionTimeout = setTimeout(() => {
                 const selection = window.getSelection();
                 if (!selection || selection.toString().trim().length === 0) {
@@ -641,28 +659,28 @@
             }
         });
 
-        const updateProgress = () => {
+        function updateProgress() {
             const winScroll = document.body.scrollTop || document.documentElement.scrollTop;
             const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
             const scrolled = height > 0 ? (winScroll / height) * 100 : 0;
             elements.progressBar.style.width = scrolled + "%";
-        };
+        }
 
-        const showToast = (message) => {
+        function showToast(message) {
             elements.toastMsg.textContent = message;
             elements.toast.classList.remove('hidden');
             elements.toast.classList.remove('toast-animate');
             void elements.toast.offsetWidth; 
             elements.toast.classList.add('toast-animate');
             setTimeout(() => elements.toast.classList.add('hidden'), 3500);
-        };
+        }
 
-        const getReadingTime = (htmlContent) => {
+        function getReadingTime(htmlContent) {
             const text = htmlContent.replace(/<[^>]*>?/gm, '');
             const wpm = 200;
             const time = Math.ceil(text.trim().split(/\s+/).length / wpm);
             return time > 0 ? time : 1;
-        };
+        }
 
         window.selectProfile = (p) => { state.profile = p; safeStorage.set('mag_profile', p); navigateTo('dashboard'); };
         window.openArticle = (id) => navigateTo('reader', state.articles.find(a => a.id === id));
@@ -784,13 +802,13 @@
             }
         };
 
-        const getThemeIcon = () => {
+        function getThemeIcon() {
             return document.documentElement.classList.contains('dark') 
                 ? `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>`
                 : `<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>`;
-        };
+        }
 
-        const updateDashboardTabsUI = () => {
+        function updateDashboardTabsUI() {
             ['articles', 'words'].forEach(t => {
                 const el = document.getElementById(`tab-${t}`);
                 if(!el) return;
@@ -802,17 +820,19 @@
                     el.classList.add('border-transparent', 'text-mag-muted', 'dark:text-gray-400');
                 }
             });
-        };
+        }
 
-        const emptyStateBlock = (title, subtitle) => `
+        function emptyStateBlock(title, subtitle) {
+            return `
             <div class="w-full text-center py-16 bg-white dark:bg-gray-800 rounded-2xl border-2 border-dashed border-mag-border dark:border-gray-700 shadow-sm flex flex-col items-center justify-center fade-in">
                 <div class="w-16 h-16 mb-4 bg-mag-highlight dark:bg-gray-700 rounded-full flex items-center justify-center text-mag-primary dark:text-gray-400"><svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg></div>
                 <p class="text-mag-text dark:text-gray-200 font-serif text-xl mb-2">${title}</p>
                 <p class="text-mag-muted dark:text-gray-400 text-sm max-w-xs mx-auto px-4">${subtitle}</p>
             </div>
-        `;
+            `;
+        }
 
-        const updateDashboardContent = () => {
+        function updateDashboardContent() {
             const container = document.getElementById('dashboard-content-area');
             if(!container) return;
 
@@ -882,9 +902,9 @@
                     </div>
                 `;
             }
-        };
+        }
 
-        const renderApp = () => {
+        function renderApp() {
             let html = '';
             
             if (state.view === 'auth') {
@@ -1029,10 +1049,10 @@
                 updateDashboardContent();
                 updateDashboardTabsUI();
             }
-        };
+        }
 
         // Запуск
-        initAuth();
+        bootApplication();
 
     </script>
 </body>
