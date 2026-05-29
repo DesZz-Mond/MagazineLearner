@@ -227,20 +227,31 @@
 
     <!-- Резервный таймер-предохранитель, если WebView Telegram сломал загрузку модулей (Mini App Failsafe) -->
     <script>
+        window.forceLocalInitFallback = function() {
+            if (window.forceLocalInit) {
+                window.forceLocalInit();
+            } else {
+                alert("Критическая ошибка загрузки. Ваш браузер полностью блокирует модули JavaScript. Попробуйте открыть ссылку в Chrome/Safari.");
+            }
+        };
+
         window.fallbackFailsafe = setTimeout(function() {
             var loader = document.getElementById('loading-screen');
-            if (loader) {
-                loader.innerHTML = '<div class="text-center fade-in"><p class="text-mag-muted dark:text-gray-400 mb-4">Браузер блокирует доступ к облаку.</p><button onclick="window.forceLocalInit()" class="px-6 py-2.5 bg-mag-primary text-white rounded-full font-medium shadow-sm active:scale-95 transition-transform">Перейти в Локальный Режим</button></div>';
+            if (loader && !window.appLoaded) {
+                loader.innerHTML = '<div class="text-center fade-in"><p class="text-mag-muted dark:text-gray-400 mb-4">Долгая загрузка. Telegram может блокировать скрипты.</p><button onclick="window.forceLocalInitFallback()" class="px-6 py-2.5 bg-mag-primary text-white rounded-full font-medium shadow-sm active:scale-95 transition-transform">Войти локально</button></div>';
             }
         }, 6000);
     </script>
 
+    <!-- СТАТИЧЕСКИЕ ИМПОРТЫ FIREBASE (Работают в Telegram Mini Apps) -->
     <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Отмечаем, что модуль успешно загружен браузером
+        window.appLoaded = true;
         let isLocalMode = false;
-        
-        // Глобальные переменные для базы
-        let app, auth, db;
-        let collection, doc, setDoc, deleteDoc, onSnapshot, addDoc;
         
         const appId = "1:364208723805:web:3639e2ddde1f4e84277ab4";
         const firebaseConfig = {
@@ -251,6 +262,16 @@
             messagingSenderId: "364208723805",
             appId: appId
         };
+
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.warn("Ошибка инициализации Firebase:", e);
+            isLocalMode = true;
+        }
 
         const state = {
             user: null,
@@ -288,7 +309,7 @@
         };
 
         function loadProfileAndNavigate() {
-            clearTimeout(window.fallbackFailsafe); // Отменяем предохранитель, всё загрузилось
+            clearTimeout(window.fallbackFailsafe); // Отменяем предохранитель
             const savedProfile = safeStorage.get('mag_profile');
             if (savedProfile) {
                 state.profile = savedProfile;
@@ -298,58 +319,43 @@
             }
         }
 
-        // Запуск приложения через Динамические Импорты
+        // Публичная функция для резервного локального запуска
+        window.forceLocalInit = () => {
+            isLocalMode = true;
+            state.user = { uid: 'local_user_123' };
+            loadProfileAndNavigate();
+        };
+
         async function bootApplication() {
+            if (isLocalMode) {
+                window.forceLocalInit();
+                return;
+            }
+
             try {
-                // 1. Пытаемся динамически загрузить Firebase (перехватывает ошибки сети/CSP)
-                const fbApp = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
-                const fbAuth = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
-                const fbDb = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
-
-                // Передаем методы в глобальные переменные
-                collection = fbDb.collection;
-                doc = fbDb.doc;
-                setDoc = fbDb.setDoc;
-                deleteDoc = fbDb.deleteDoc;
-                onSnapshot = fbDb.onSnapshot;
-                addDoc = fbDb.addDoc;
-
-                app = fbApp.initializeApp(firebaseConfig);
-                auth = fbAuth.getAuth(app);
-                db = fbDb.getFirestore(app);
-
-                // 2. Инициализация авторизации с ТАЙМАУТОМ (для зависших Telegram WebViews)
-                const authTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram WebView Auth Timeout")), 3500));
+                // Инициализация авторизации с ТАЙМАУТОМ (для зависших баз в Telegram WebViews)
+                const authTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Firebase Auth Timeout")), 4000));
                 
                 let authPromise;
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    authPromise = fbAuth.signInWithCustomToken(auth, __initial_auth_token).catch(() => fbAuth.signInAnonymously(auth));
+                    authPromise = signInWithCustomToken(auth, __initial_auth_token).catch(() => signInAnonymously(auth));
                 } else {
-                    authPromise = fbAuth.signInAnonymously(auth);
+                    authPromise = signInAnonymously(auth);
                 }
 
                 await Promise.race([authPromise, authTimeout]);
 
-                fbAuth.onAuthStateChanged(auth, (user) => {
+                onAuthStateChanged(auth, (user) => {
                     if (isLocalMode) return;
                     state.user = user;
                     loadProfileAndNavigate();
                 });
 
             } catch (error) {
-                console.warn("Включаем Локальный Режим. Причина: ограничение браузера или таймаут.", error.message);
-                isLocalMode = true;
-                state.user = { uid: 'local_user_123' };
-                loadProfileAndNavigate();
+                console.warn("Включаем Локальный Режим из-за ошибки сети или таймаута базы данных:", error.message);
+                window.forceLocalInit();
             }
         }
-
-        // Вызов в самом крайнем случае
-        window.forceLocalInit = () => {
-            isLocalMode = true;
-            state.user = { uid: 'local_user_123' };
-            loadProfileAndNavigate();
-        };
 
         function navigateTo(view, data = null) {
             state.view = view;
