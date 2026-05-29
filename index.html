@@ -287,12 +287,12 @@
             }
         }
 
-        function navigateTo(view, data = null) {
-            state.view = view;
-            elements.tooltip.classList.add('hidden');
-            elements.progressBarContainer.classList.add('hidden');
-            window.speechSynthesis.cancel(); 
-
+function navigateTo(view, data = null) {
+    state.view = view;
+    elements.tooltip.classList.add('hidden');
+    elements.progressBarContainer.classList.add('hidden');
+    if (window.speechSynthesis) window.speechSynthesis.cancel(); // Добавлена проверка
+    
             if (data && view === 'reader') {
                 state.currentArticle = data;
                 window.addEventListener('scroll', updateProgress);
@@ -583,11 +583,15 @@
                 if (actionType === 'word') window.saveToFirestore('word', state.selectedText);
                 if (actionType === 'quote') window.saveToFirestore('quote', state.selectedText);
                 if (actionType === 'listen') {
-                    window.speechSynthesis.cancel();
-                    const utterance = new SpeechSynthesisUtterance(state.selectedText);
-                    utterance.lang = 'en-US';
-                    window.speechSynthesis.speak(utterance);
-                }
+    if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(state.selectedText);
+        utterance.lang = 'en-US';
+        window.speechSynthesis.speak(utterance);
+    } else {
+        showToast("Озвучка не поддерживается на этом устройстве");
+    }
+}
                 if (actionType === 'translate') {
                     const safeWord = encodeURIComponent(state.selectedText.trim().toLowerCase());
                     window.open(`https://dictionary.cambridge.org/dictionary/english-russian/${safeWord}`, '_blank');
