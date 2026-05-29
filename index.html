@@ -62,6 +62,10 @@
         }
         
         html { scroll-behavior: smooth; }
+
+        /* Кастомный цвет выделения текста */
+        ::selection { background: rgba(132, 89, 60, 0.25); color: inherit; }
+        html.dark ::selection { background: rgba(166, 123, 91, 0.4); color: inherit; }
         
         .article-content { transition: font-size 0.3s ease; }
         .article-content.text-sm { font-size: 1rem; }
@@ -105,19 +109,58 @@
         html.dark .article-content mark { background-color: rgba(166, 123, 91, 0.2); }
         .article-content strong { font-weight: 600; }
 
-        /* Тултип (Всплывающее меню) */
+        /* Тултип (Десктоп) */
         .tooltip-arrow::after {
             content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #1f2937 transparent transparent transparent;
         }
         .tooltip-arrow.tooltip-bottom::after {
             top: auto; bottom: 100%; border-color: transparent transparent #1f2937 transparent;
         }
-        
+
         .fade-in { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 
-        .tooltip-fade-in { animation: tooltipFadeIn 0.2s ease-out forwards; }
+        .tooltip-fade-in { animation: tooltipFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         @keyframes tooltipFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+        /* --- МОБИЛЬНАЯ АДАПТАЦИЯ ТУЛТИПА --- */
+        @media (max-width: 767px) {
+            #selection-tooltip {
+                position: fixed !important;
+                top: auto !important;
+                bottom: 24px !important;
+                left: 50% !important;
+                transform: translateX(-50%) !important;
+                width: calc(100% - 32px);
+                max-width: 400px;
+                padding: 12px 8px;
+                border-radius: 20px;
+                justify-content: space-between;
+                box-shadow: 0 10px 40px -10px rgba(0,0,0,0.5);
+                border: 1px solid rgba(255,255,255,0.1);
+                background: rgba(31, 41, 55, 0.95);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+            }
+            #selection-tooltip::after { display: none !important; }
+            
+            .tooltip-fade-in { animation: slideUpMobile 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards !important; }
+            @keyframes slideUpMobile {
+                from { opacity: 0; transform: translate(-50%, 40px) scale(0.95); }
+                to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+            }
+            
+            #selection-tooltip button {
+                flex-direction: column;
+                padding: 10px 0;
+                gap: 8px;
+                flex: 1;
+                border-radius: 14px;
+            }
+            #selection-tooltip button svg { width: 24px; height: 24px; margin: 0 auto; }
+            #selection-tooltip button span { display: block !important; font-size: 12px; font-weight: 500; }
+            .tooltip-divider { display: none; }
+        }
 
         @keyframes slideUpFade { 0% { opacity: 0; transform: translate(-50%, 20px); } 10% { opacity: 1; transform: translate(-50%, 0); } 90% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -20px); } }
         .toast-animate { animation: slideUpFade 3.5s ease-in-out forwards; }
@@ -157,18 +200,18 @@
     </div>
 
     <div id="selection-tooltip" class="absolute z-50 hidden bg-gray-800 text-white rounded-xl shadow-2xl flex items-center p-1.5 tooltip-arrow mb-3 border border-gray-700" style="transform: translateX(-50%);">
-        <button id="btn-listen" class="px-5 py-4 sm:px-4 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap active:bg-gray-600" title="Прослушать">
-            <svg class="w-6 h-6 sm:w-4 sm:h-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+        <button id="btn-listen" class="px-4 py-2 text-sm hover:bg-gray-700 rounded-lg transition-transform active:scale-95 flex items-center gap-2 whitespace-nowrap" title="Прослушать">
+            <svg class="w-4 h-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
             <span class="hidden sm:inline">Слушать</span>
         </button>
-        <div class="w-px h-8 sm:h-6 bg-gray-600 mx-1"></div>
-        <button id="btn-save-word" class="px-5 py-4 sm:px-4 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap active:bg-gray-600">
-            <svg class="w-6 h-6 sm:w-4 sm:h-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
-            Слово
+        <div class="tooltip-divider w-px h-6 bg-gray-600 mx-1"></div>
+        <button id="btn-save-word" class="px-4 py-2 text-sm hover:bg-gray-700 rounded-lg transition-transform active:scale-95 flex items-center gap-2 whitespace-nowrap">
+            <svg class="w-4 h-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+            <span class="hidden sm:inline">Слово</span>
         </button>
-        <div class="w-px h-8 sm:h-6 bg-gray-600 mx-1"></div>
-        <button id="btn-translate" class="px-5 py-4 sm:px-4 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap text-blue-300 active:bg-gray-600">
-            <svg class="w-6 h-6 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path></svg>
+        <div class="tooltip-divider w-px h-6 bg-gray-600 mx-1"></div>
+        <button id="btn-translate" class="px-4 py-2 text-sm hover:bg-gray-700 rounded-lg transition-transform active:scale-95 flex items-center gap-2 whitespace-nowrap text-blue-300">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path></svg>
             <span class="hidden sm:inline">Перевод</span>
         </button>
     </div>
@@ -232,7 +275,6 @@
             editInput: document.getElementById('edit-translation-input')
         };
 
-        // Безопасное чтение/запись в хранилище (для предотвращения ошибок на iOS)
         const safeStorage = {
             get: (key) => { try { return sessionStorage.getItem(key); } catch(e) { return null; } },
             set: (key, val) => { try { sessionStorage.setItem(key, val); } catch(e) {} },
@@ -254,7 +296,6 @@
         };
 
         const initAuth = async () => {
-            // Усиленная проверка: если Firebase не смог загрузиться (например, в Telegram WebView)
             if (isLocalMode || typeof auth === 'undefined' || !auth) {
                 console.warn("Forcing Local Mode due to environment restrictions (e.g. Telegram Mini App)");
                 isLocalMode = true;
@@ -479,7 +520,7 @@
             }
         };
 
-        // Адаптированная логика выделения текста для Мобильных и ПК
+        // Адаптированная плавная логика выделения текста
         const handleSelection = () => {
             if (state.view !== 'reader') return;
             
@@ -496,48 +537,62 @@
 
                     elements.tooltip.classList.remove('hidden');
                     
-                    // Небольшая задержка для получения корректных размеров
                     setTimeout(() => {
                         const tooltipWidth = elements.tooltip.offsetWidth;
                         const tooltipHeight = elements.tooltip.offsetHeight;
                         
-                        let leftPos = rect.left + window.scrollX + (rect.width / 2);
-                        const padding = 15;
-                        
-                        if (leftPos - tooltipWidth/2 < window.scrollX + padding) leftPos = window.scrollX + tooltipWidth/2 + padding;
-                        if (leftPos + tooltipWidth/2 > window.innerWidth + window.scrollX - padding) leftPos = window.innerWidth + window.scrollX - tooltipWidth/2 - padding;
+                        const isMobile = window.innerWidth < 768; // Проверяем мобилку
 
-                        let topPos = rect.top + window.scrollY - tooltipHeight - 12;
-                        const isMobile = window.innerWidth < 768; // Проверяем, телефон ли это
-                        
-                        // НА ТЕЛЕФОНАХ всегда стараемся показывать снизу, чтобы не перекрывать системное меню Android/iOS
-                        // Если сверху мало места - тоже показываем снизу.
-                        if (isMobile || rect.top < tooltipHeight + 20) {
-                            topPos = rect.bottom + window.scrollY + 12;
-                            elements.tooltip.classList.add('tooltip-bottom');
+                        if (!isMobile) {
+                            // ЛОГИКА ДЛЯ ПК: Показываем плавающее окно над выделенным текстом
+                            let leftPos = rect.left + window.scrollX + (rect.width / 2);
+                            const padding = 15;
+                            
+                            if (leftPos - tooltipWidth/2 < window.scrollX + padding) leftPos = window.scrollX + tooltipWidth/2 + padding;
+                            if (leftPos + tooltipWidth/2 > window.innerWidth + window.scrollX - padding) leftPos = window.innerWidth + window.scrollX - tooltipWidth/2 - padding;
+
+                            let topPos = rect.top + window.scrollY - tooltipHeight - 12;
+                            
+                            if (rect.top < tooltipHeight + 20) {
+                                topPos = rect.bottom + window.scrollY + 12;
+                                elements.tooltip.classList.add('tooltip-bottom');
+                            } else {
+                                elements.tooltip.classList.remove('tooltip-bottom');
+                            }
+
+                            // Инлайн стили для ПК
+                            elements.tooltip.style.position = 'absolute';
+                            elements.tooltip.style.top = `${topPos}px`;
+                            elements.tooltip.style.left = `${leftPos}px`;
+                            elements.tooltip.style.bottom = 'auto';
+                            elements.tooltip.style.transform = 'translateX(-50%)';
                         } else {
+                            // ЛОГИКА ДЛЯ МОБИЛЬНЫХ: Очищаем позиционирование, CSS сделает Bottom Sheet
+                            elements.tooltip.style.position = '';
+                            elements.tooltip.style.top = '';
+                            elements.tooltip.style.left = '';
+                            elements.tooltip.style.bottom = '';
+                            elements.tooltip.style.transform = '';
                             elements.tooltip.classList.remove('tooltip-bottom');
                         }
 
-                        elements.tooltip.style.top = `${topPos}px`;
-                        elements.tooltip.style.left = `${leftPos}px`;
                         elements.tooltip.classList.add('tooltip-fade-in');
-                    }, 10);
+                    }, 10); // Микро-задержка для рендера
                 } else {
-                    // Не прячем мгновенно, чтобы успел отработать клик по кнопке
                     setTimeout(() => elements.tooltip.classList.add('hidden'), 100);
                 }
-            }, 100);
+            }, 50);
         };
 
-        // Убрали проблемные e.preventDefault() которые блокировали нажатие кнопок на телефонах
+        // Защита от потери фокуса при клике по меню
+        elements.tooltip.addEventListener('mousedown', (e) => e.preventDefault());
+        elements.tooltip.addEventListener('touchstart', (e) => e.preventDefault(), {passive: false});
         
         document.addEventListener('mouseup', (e) => {
             if (elements.tooltip.contains(e.target) || e.target.closest('#selection-tooltip')) return;
             handleSelection();
         });
 
-        // Поддержка сенсорных устройств (мобильные)
         document.addEventListener('touchend', (e) => {
             if (elements.tooltip.contains(e.target) || e.target.closest('#selection-tooltip')) return;
             handleSelection();
@@ -547,8 +602,7 @@
             if (state.view !== 'reader') return;
             clearTimeout(window.selectionTimeout);
             
-            // Задержка 300мс очень важна для мобильных! Она дает браузеру время 
-            // зарегистрировать "click" на кнопке ДО того, как меню исчезнет из-за снятия выделения.
+            // Плавная задержка 400мс: защищает от дерганий меню на телефонах
             window.selectionTimeout = setTimeout(() => {
                 const selection = window.getSelection();
                 if (!selection || selection.toString().trim().length === 0) {
@@ -557,7 +611,7 @@
                 } else {
                     handleSelection();
                 }
-            }, 300); 
+            }, 400); 
         });
 
         document.getElementById('btn-save-word').addEventListener('click', (e) => { 
@@ -909,7 +963,7 @@
                         </div>
                     </nav>
 
-                    <article class="max-w-3xl mx-auto w-full pb-32 fade-in px-2 sm:px-0">
+                    <article class="max-w-3xl mx-auto w-full pb-48 fade-in px-2 sm:px-0">
                         <header class="mb-10 md:mb-14 text-center">
                             <p class="text-xs md:text-sm font-semibold text-mag-muted dark:text-gray-400 tracking-widest uppercase mb-4">${new Date(state.currentArticle.createdAt).toLocaleDateString('ru-RU', {month: 'long', day: 'numeric', year: 'numeric'})}</p>
                             <h1 class="font-serif text-3xl md:text-5xl lg:text-6xl text-mag-text dark:text-gray-100 leading-tight md:leading-tight mb-6 md:mb-8">${state.currentArticle.title}</h1>
