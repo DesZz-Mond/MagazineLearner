@@ -156,6 +156,8 @@
                 gap: 8px;
                 flex: 1;
                 border-radius: 14px;
+                /* Дополнительная помощь для сенсора */
+                touch-action: manipulation; 
             }
             #selection-tooltip button svg { width: 24px; height: 24px; margin: 0 auto; }
             #selection-tooltip button span { display: block !important; font-size: 12px; font-weight: 500; }
@@ -317,7 +319,6 @@
                 db = fbDb.getFirestore(app);
 
                 // 2. Инициализация авторизации с ТАЙМАУТОМ (для зависших Telegram WebViews)
-                // Если база не отвечает за 3.5 секунды, принудительно падаем в Catch
                 const authTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram WebView Auth Timeout")), 3500));
                 
                 let authPromise;
@@ -603,9 +604,6 @@
                 }
             }, 50);
         }
-
-        elements.tooltip.addEventListener('mousedown', (e) => e.preventDefault());
-        elements.tooltip.addEventListener('touchstart', (e) => e.preventDefault(), {passive: false});
         
         document.addEventListener('mouseup', (e) => {
             if (elements.tooltip.contains(e.target) || e.target.closest('#selection-tooltip')) return;
@@ -632,32 +630,45 @@
             }, 400); 
         });
 
-        document.getElementById('btn-save-word').addEventListener('click', (e) => { 
-            e.preventDefault(); 
-            e.stopPropagation();
-            if(state.selectedText) saveToFirestore('word', state.selectedText); 
-        });
-        
-        document.getElementById('btn-listen').addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if(state.selectedText) {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(state.selectedText);
-                utterance.lang = 'en-US';
-                window.speechSynthesis.speak(utterance);
-            }
-        });
+        // -------------------------------------------------------------
+        // ОБРАБОТКА КНОПОК МЕНЮ (Прямые касания для смартфонов + мышь)
+        // -------------------------------------------------------------
+        const setupTooltipButton = (id, actionType) => {
+            const btn = document.getElementById(id);
+            if (!btn) return;
 
-        document.getElementById('btn-translate').addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if(state.selectedText) {
-                const safeWord = encodeURIComponent(state.selectedText.trim().toLowerCase());
-                window.open(`https://dictionary.cambridge.org/dictionary/english-russian/${safeWord}`, '_blank');
-                elements.tooltip.classList.add('hidden');
-            }
-        });
+            const actionHandler = (e) => {
+                if (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+                
+                if (!state.selectedText) return;
+                
+                if (actionType === 'word') saveToFirestore('word', state.selectedText);
+                if (actionType === 'listen') {
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(state.selectedText);
+                    utterance.lang = 'en-US';
+                    window.speechSynthesis.speak(utterance);
+                }
+                if (actionType === 'translate') {
+                    const safeWord = encodeURIComponent(state.selectedText.trim().toLowerCase());
+                    window.open(`https://dictionary.cambridge.org/dictionary/english-russian/${safeWord}`, '_blank');
+                    elements.tooltip.classList.add('hidden');
+                }
+            };
+
+            // Для мобильных: мгновенный триггер при отпускании пальца от кнопки (игнорирует блокировку)
+            btn.addEventListener('touchend', actionHandler, { passive: false });
+            // Для ПК: обычный клик мышкой
+            btn.addEventListener('click', actionHandler);
+        };
+
+        setupTooltipButton('btn-save-word', 'word');
+        setupTooltipButton('btn-listen', 'listen');
+        setupTooltipButton('btn-translate', 'translate');
+        // -------------------------------------------------------------
 
         function updateProgress() {
             const winScroll = document.body.scrollTop || document.documentElement.scrollTop;
