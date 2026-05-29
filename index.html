@@ -287,12 +287,12 @@
             }
         }
 
-function navigateTo(view, data = null) {
-    state.view = view;
-    elements.tooltip.classList.add('hidden');
-    elements.progressBarContainer.classList.add('hidden');
-    if (window.speechSynthesis) window.speechSynthesis.cancel(); // Добавлена проверка
-    
+        function navigateTo(view, data = null) {
+            state.view = view;
+            elements.tooltip.classList.add('hidden');
+            elements.progressBarContainer.classList.add('hidden');
+            window.speechSynthesis.cancel(); 
+
             if (data && view === 'reader') {
                 state.currentArticle = data;
                 window.addEventListener('scroll', updateProgress);
@@ -381,10 +381,28 @@ function navigateTo(view, data = null) {
             if (type === 'word') {
                 showToast("Изучаем и переводим...");
                 try {
-                    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ru&dt=t&q=${encodeURIComponent(text)}`;
+                    // Добавлено dt=bd для получения словарных (альтернативных) вариантов перевода
+                    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ru&dt=t&dt=bd&q=${encodeURIComponent(text)}`;
                     const transRes = await fetch(url);
                     const transData = await transRes.json();
-                    if (transData && transData[0] && transData[0][0] && transData[0][0][0]) translation = transData[0][0][0];
+                    
+                    let variants = [];
+                    // Парсим альтернативные варианты перевода, если они есть (обычно бывают для отдельных слов)
+                    if (transData[1] && Array.isArray(transData[1])) {
+                        transData[1].forEach(pos => {
+                            if (pos[1] && Array.isArray(pos[1])) {
+                                variants.push(...pos[1]);
+                            }
+                        });
+                    }
+                    
+                    if (variants.length > 0) {
+                        // Убираем дубликаты и берем первые 4 варианта через запятую
+                        translation = [...new Set(variants)].slice(0, 4).join(', ');
+                    } else if (transData && transData[0] && transData[0][0] && transData[0][0][0]) {
+                        // Если словарных вариантов нет (например, это целая фраза), берем основной прямой перевод
+                        translation = transData[0][0][0];
+                    }
                 } catch (e) { }
 
                 try {
@@ -583,15 +601,11 @@ function navigateTo(view, data = null) {
                 if (actionType === 'word') window.saveToFirestore('word', state.selectedText);
                 if (actionType === 'quote') window.saveToFirestore('quote', state.selectedText);
                 if (actionType === 'listen') {
-    if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(state.selectedText);
-        utterance.lang = 'en-US';
-        window.speechSynthesis.speak(utterance);
-    } else {
-        showToast("Озвучка не поддерживается на этом устройстве");
-    }
-}
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(state.selectedText);
+                    utterance.lang = 'en-US';
+                    window.speechSynthesis.speak(utterance);
+                }
                 if (actionType === 'translate') {
                     const safeWord = encodeURIComponent(state.selectedText.trim().toLowerCase());
                     window.open(`https://dictionary.cambridge.org/dictionary/english-russian/${safeWord}`, '_blank');
