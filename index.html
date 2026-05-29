@@ -157,23 +157,28 @@
     </div>
 
     <div id="selection-tooltip" class="absolute z-50 hidden bg-gray-800 text-white rounded-xl shadow-2xl flex items-center p-1.5 tooltip-arrow mb-3 border border-gray-700" style="transform: translateX(-50%);">
-        <button id="btn-listen" class="px-4 py-3 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap active:bg-gray-600" title="Прослушать">
-            <svg class="w-5 h-5 sm:w-4 sm:h-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+        <button id="btn-listen" class="px-5 py-4 sm:px-4 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap active:bg-gray-600" title="Прослушать">
+            <svg class="w-6 h-6 sm:w-4 sm:h-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
             <span class="hidden sm:inline">Слушать</span>
         </button>
-        <div class="w-px h-6 bg-gray-600 mx-1"></div>
-        <button id="btn-save-word" class="px-4 py-3 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap active:bg-gray-600">
-            <svg class="w-5 h-5 sm:w-4 sm:h-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
+        <div class="w-px h-8 sm:h-6 bg-gray-600 mx-1"></div>
+        <button id="btn-save-word" class="px-5 py-4 sm:px-4 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap active:bg-gray-600">
+            <svg class="w-6 h-6 sm:w-4 sm:h-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
             Слово
         </button>
-        <div class="w-px h-6 bg-gray-600 mx-1"></div>
-        <button id="btn-translate" class="px-4 py-3 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap text-blue-300 active:bg-gray-600">
-            <svg class="w-5 h-5 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path></svg>
+        <div class="w-px h-8 sm:h-6 bg-gray-600 mx-1"></div>
+        <button id="btn-translate" class="px-5 py-4 sm:px-4 sm:py-2 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2 whitespace-nowrap text-blue-300 active:bg-gray-600">
+            <svg class="w-6 h-6 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path></svg>
             <span class="hidden sm:inline">Перевод</span>
         </button>
     </div>
 
-    <div id="app" class="flex-grow flex flex-col w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8"></div>
+    <div id="app" class="flex-grow flex flex-col w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
+        <div class="flex-grow flex flex-col items-center justify-center min-h-[50vh]">
+            <svg class="animate-spin h-10 w-10 text-mag-primary dark:text-mag-primaryLight mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <p class="text-mag-muted dark:text-gray-400 font-medium">Загрузка Magazine Learner...</p>
+        </div>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -249,7 +254,10 @@
         };
 
         const initAuth = async () => {
-            if (isLocalMode) {
+            // Усиленная проверка: если Firebase не смог загрузиться (например, в Telegram WebView)
+            if (isLocalMode || typeof auth === 'undefined' || !auth) {
+                console.warn("Forcing Local Mode due to environment restrictions (e.g. Telegram Mini App)");
+                isLocalMode = true;
                 state.user = { uid: 'local_user_123' };
                 loadProfileAndNavigate();
                 return;
@@ -500,9 +508,11 @@
                         if (leftPos + tooltipWidth/2 > window.innerWidth + window.scrollX - padding) leftPos = window.innerWidth + window.scrollX - tooltipWidth/2 - padding;
 
                         let topPos = rect.top + window.scrollY - tooltipHeight - 12;
+                        const isMobile = window.innerWidth < 768; // Проверяем, телефон ли это
                         
-                        // Если сверху мало места, показываем снизу
-                        if (rect.top < tooltipHeight + 20) {
+                        // НА ТЕЛЕФОНАХ всегда стараемся показывать снизу, чтобы не перекрывать системное меню Android/iOS
+                        // Если сверху мало места - тоже показываем снизу.
+                        if (isMobile || rect.top < tooltipHeight + 20) {
                             topPos = rect.bottom + window.scrollY + 12;
                             elements.tooltip.classList.add('tooltip-bottom');
                         } else {
@@ -514,12 +524,14 @@
                         elements.tooltip.classList.add('tooltip-fade-in');
                     }, 10);
                 } else {
-                    elements.tooltip.classList.add('hidden');
-                    state.selectedText = '';
+                    // Не прячем мгновенно, чтобы успел отработать клик по кнопке
+                    setTimeout(() => elements.tooltip.classList.add('hidden'), 100);
                 }
             }, 100);
         };
 
+        // Убрали проблемные e.preventDefault() которые блокировали нажатие кнопок на телефонах
+        
         document.addEventListener('mouseup', (e) => {
             if (elements.tooltip.contains(e.target) || e.target.closest('#selection-tooltip')) return;
             handleSelection();
@@ -533,24 +545,30 @@
 
         document.addEventListener('selectionchange', () => {
             if (state.view !== 'reader') return;
-            const selection = window.getSelection();
-            if (selection.toString().trim().length === 0) {
-                elements.tooltip.classList.add('hidden');
-                elements.tooltip.classList.remove('tooltip-fade-in');
-                state.selectedText = '';
-            } else {
-                clearTimeout(window.selectionTimeout);
-                window.selectionTimeout = setTimeout(handleSelection, 400);
-            }
+            clearTimeout(window.selectionTimeout);
+            
+            // Задержка 300мс очень важна для мобильных! Она дает браузеру время 
+            // зарегистрировать "click" на кнопке ДО того, как меню исчезнет из-за снятия выделения.
+            window.selectionTimeout = setTimeout(() => {
+                const selection = window.getSelection();
+                if (!selection || selection.toString().trim().length === 0) {
+                    elements.tooltip.classList.add('hidden');
+                    elements.tooltip.classList.remove('tooltip-fade-in');
+                } else {
+                    handleSelection();
+                }
+            }, 300); 
         });
 
-        elements.tooltip.addEventListener('mousedown', (e) => e.preventDefault());
-        elements.tooltip.addEventListener('touchstart', (e) => e.preventDefault(), {passive: false});
-
-        document.getElementById('btn-save-word').addEventListener('click', (e) => { e.preventDefault(); saveToFirestore('word', state.selectedText); });
+        document.getElementById('btn-save-word').addEventListener('click', (e) => { 
+            e.preventDefault(); 
+            e.stopPropagation();
+            if(state.selectedText) saveToFirestore('word', state.selectedText); 
+        });
         
         document.getElementById('btn-listen').addEventListener('click', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             if(state.selectedText) {
                 window.speechSynthesis.cancel();
                 const utterance = new SpeechSynthesisUtterance(state.selectedText);
@@ -561,6 +579,7 @@
 
         document.getElementById('btn-translate').addEventListener('click', (e) => {
             e.preventDefault();
+            e.stopPropagation();
             if(state.selectedText) {
                 const safeWord = encodeURIComponent(state.selectedText.trim().toLowerCase());
                 window.open(`https://dictionary.cambridge.org/dictionary/english-russian/${safeWord}`, '_blank');
