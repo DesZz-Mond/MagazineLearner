@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Magazine Learner</title>
     
+    <!-- Telegram Mini App SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -64,7 +67,6 @@
         
         html { scroll-behavior: smooth; }
 
-        /* Кастомный цвет выделения текста */
         ::selection { background: rgba(132, 89, 60, 0.25); color: inherit; }
         html.dark ::selection { background: rgba(166, 123, 91, 0.4); color: inherit; }
         
@@ -201,29 +203,29 @@
         </div>
     </div>
 
+    <!-- Всплывающее меню (Тултип) -->
     <div id="selection-tooltip" class="absolute z-50 hidden bg-gray-800 text-white rounded-xl shadow-2xl flex items-center p-1.5 tooltip-arrow mb-3 border border-gray-700" style="transform: translateX(-50%);">
         <button id="btn-listen" class="px-3 py-2 sm:py-1.5 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap" title="Прослушать">
             <svg class="w-4 h-4 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
             <span class="hidden sm:inline">Слушать</span>
         </button>
-        <div class="w-px h-6 bg-gray-600 mx-1"></div>
+        <div class="w-px h-6 bg-gray-600 mx-1 tooltip-divider"></div>
         <button id="btn-save-word" class="px-3 py-2 sm:py-1.5 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap">
             <svg class="w-4 h-4 text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"></path></svg>
             Слово
         </button>
-        <div class="w-px h-6 bg-gray-600 mx-1"></div>
+        <div class="w-px h-6 bg-gray-600 mx-1 tooltip-divider"></div>
         <button id="btn-save-quote" class="px-3 py-2 sm:py-1.5 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap">
             <svg class="w-4 h-4 text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
             Цитата
         </button>
-        <div class="w-px h-6 bg-gray-600 mx-1"></div>
+        <div class="w-px h-6 bg-gray-600 mx-1 tooltip-divider"></div>
         <button id="btn-translate" class="px-3 py-2 sm:py-1.5 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap text-blue-300">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path></svg>
             Перевод
         </button>
     </div>
 
-    <!-- Контейнер приложения -->
     <div id="app" class="flex-grow flex flex-col w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
         <div class="flex-grow flex flex-col items-center justify-center min-h-[50vh]" id="loading-screen">
             <svg class="animate-spin h-10 w-10 text-mag-primary dark:text-mag-primaryLight mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
@@ -231,8 +233,16 @@
         </div>
     </div>
 
-    <!-- 1. ОСНОВНОЙ СКРИПТ: Независим от модулей. Гарантированно работает в любом браузере и WebView Telegram -->
+    <!-- КЛАССИЧЕСКИЙ СКРИПТ: Обходит блокировку модулей в Android WebView -->
     <script>
+        // 1. Инициализация Telegram WebApp
+        try {
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.ready();
+                window.Telegram.WebApp.expand();
+            }
+        } catch (e) {}
+
         const safeStorage = {
             get: (key) => { try { return sessionStorage.getItem(key); } catch(e) { return null; } },
             set: (key, val) => { try { sessionStorage.setItem(key, val); } catch(e) {} },
@@ -255,32 +265,19 @@
             editInput: document.getElementById('edit-translation-input')
         };
 
-        // Делаем объекты глобальными, чтобы Firebase модуль мог с ними взаимодействовать
-        window.state = state;
-        window.elements = elements;
-        window.isLocalMode = false;
-        window.fbDb = null;
-        window.fbMethods = null;
-        window.appId = "1:364208723805:web:3639e2ddde1f4e84277ab4";
-
-        // Экстренный запуск в локальном режиме
-        window.startAppLocal = function() {
-            if (window.isLocalMode) return;
-            console.warn("Включен Локальный Режим (вероятно, Telegram заблокировал внешние скрипты)");
-            window.isLocalMode = true;
-            state.user = { uid: 'local_user_123' };
-            window.loadProfileAndNavigate();
+        let fbApp, fbAuth, fbDb, fbMethods;
+        let isLocalMode = false;
+        const appId = "1:364208723805:web:3639e2ddde1f4e84277ab4";
+        const firebaseConfig = {
+            apiKey: "AIzaSyD7A24gqyocYPVkiMtRFWHoSDRp4egnGh8",
+            authDomain: "magazine-learner.firebaseapp.com",
+            projectId: "magazine-learner",
+            storageBucket: "magazine-learner.firebasestorage.app",
+            messagingSenderId: "364208723805",
+            appId: appId
         };
 
-        // Таймер-предохранитель: если через 3.5 секунды Firebase так и не ответил, принудительно стартуем локально
-        window.bootTimeout = setTimeout(() => {
-            if (state.view === 'auth' && !state.user && !window.isLocalMode) {
-                window.startAppLocal();
-            }
-        }, 3500);
-
-        window.loadProfileAndNavigate = function() {
-            clearTimeout(window.bootTimeout);
+        function loadProfileAndNavigate() {
             const savedProfile = safeStorage.get('mag_profile');
             if (savedProfile) {
                 state.profile = savedProfile;
@@ -288,7 +285,7 @@
             } else {
                 navigateTo('auth');
             }
-        };
+        }
 
         function navigateTo(view, data = null) {
             state.view = view;
@@ -321,7 +318,7 @@
             if (!state.user) return;
             clearListeners();
 
-            if (window.isLocalMode || !window.fbDb) {
+            if (isLocalMode || !fbDb) {
                 state.articles = JSON.parse(safeLocal.get('mag_articles') || '[]').sort((a,b) => b.createdAt - a.createdAt);
                 state.words = JSON.parse(safeLocal.get('mag_words') || '[]').filter(w => w.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
                 state.quotes = JSON.parse(safeLocal.get('mag_quotes') || '[]').filter(q => q.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
@@ -334,9 +331,9 @@
             }
 
             try {
-                const { collection, onSnapshot } = window.fbMethods;
+                const { collection, onSnapshot } = fbMethods;
                 
-                const articlesRef = collection(window.fbDb, 'artifacts', window.appId, 'public', 'data', 'articles');
+                const articlesRef = collection(fbDb, 'artifacts', appId, 'public', 'data', 'articles');
                 const unsubArticles = onSnapshot(articlesRef, (snapshot) => {
                     const fetchedArticles = [];
                     snapshot.forEach(doc => fetchedArticles.push({ id: doc.id, ...doc.data() }));
@@ -346,7 +343,7 @@
                 });
                 state.unsubs.push(unsubArticles);
 
-                const wordsRef = collection(window.fbDb, 'artifacts', window.appId, 'public', 'data', 'saved_words');
+                const wordsRef = collection(fbDb, 'artifacts', appId, 'public', 'data', 'saved_words');
                 const unsubWords = onSnapshot(wordsRef, (snapshot) => {
                     const fetchedWords = [];
                     snapshot.forEach(doc => {
@@ -358,7 +355,7 @@
                 });
                 state.unsubs.push(unsubWords);
 
-                const quotesRef = collection(window.fbDb, 'artifacts', window.appId, 'users', state.user.uid, 'saved_quotes');
+                const quotesRef = collection(fbDb, 'artifacts', appId, 'users', state.user.uid, 'saved_quotes');
                 const unsubQuotes = onSnapshot(quotesRef, (snapshot) => {
                     const fetchedQuotes = [];
                     snapshot.forEach(doc => {
@@ -409,7 +406,7 @@
 
             const itemObj = { text, translation, phonetics, partOfSpeech, profile: state.profile, articleId: state.currentArticle ? state.currentArticle.id : null, articleTitle: state.currentArticle ? state.currentArticle.title : 'Неизвестно', createdAt: Date.now() };
 
-            if (window.isLocalMode || !window.fbDb) {
+            if (isLocalMode || !fbDb) {
                 const key = type === 'word' ? 'mag_words' : 'mag_quotes';
                 const arr = JSON.parse(safeLocal.get(key) || '[]');
                 itemObj.id = 'loc_' + Date.now() + Math.random().toString(36).substring(2, 9);
@@ -421,12 +418,11 @@
             }
 
             const collectionName = type === 'word' ? 'saved_words' : 'saved_quotes';
-            const { collection, addDoc } = window.fbMethods;
+            const { collection, addDoc } = fbMethods;
             
-            // Заметка: Слова хранятся публично, цитаты приватно (как было в оригинальном коде)
             const colRef = type === 'word' 
-                ? collection(window.fbDb, 'artifacts', window.appId, 'public', 'data', collectionName)
-                : collection(window.fbDb, 'artifacts', window.appId, 'users', state.user.uid, collectionName);
+                ? collection(fbDb, 'artifacts', appId, 'public', 'data', collectionName)
+                : collection(fbDb, 'artifacts', appId, 'users', state.user.uid, collectionName);
                 
             try {
                 await addDoc(colRef, itemObj);
@@ -438,7 +434,7 @@
              if (!state.user) return;
              
              if (type === 'article') {
-                if (window.isLocalMode || !window.fbDb) {
+                if (isLocalMode || !fbDb) {
                     let arr = JSON.parse(safeLocal.get('mag_articles') || '[]');
                     arr = arr.filter(i => i.id !== docId);
                     safeLocal.set('mag_articles', JSON.stringify(arr));
@@ -446,13 +442,13 @@
                     setupFirestoreListeners();
                     return;
                 }
-                const { doc, deleteDoc } = window.fbMethods;
-                const docRef = doc(window.fbDb, 'artifacts', window.appId, 'public', 'data', 'articles', docId);
+                const { doc, deleteDoc } = fbMethods;
+                const docRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'articles', docId);
                 try { await deleteDoc(docRef); showToast("Статья удалена"); } catch(e) { showToast("Ошибка удаления"); }
                 return;
              }
 
-             if (window.isLocalMode || !window.fbDb) {
+             if (isLocalMode || !fbDb) {
                  const key = type === 'word' ? 'mag_words' : 'mag_quotes';
                  let arr = JSON.parse(safeLocal.get(key) || '[]');
                  arr = arr.filter(i => i.id !== docId);
@@ -463,10 +459,10 @@
              }
 
              const collectionName = type === 'word' ? 'saved_words' : 'saved_quotes';
-             const { doc, deleteDoc } = window.fbMethods;
+             const { doc, deleteDoc } = fbMethods;
              const docRef = type === 'word'
-                 ? doc(window.fbDb, 'artifacts', window.appId, 'public', 'data', collectionName, docId)
-                 : doc(window.fbDb, 'artifacts', window.appId, 'users', state.user.uid, collectionName, docId);
+                 ? doc(fbDb, 'artifacts', appId, 'public', 'data', collectionName, docId)
+                 : doc(fbDb, 'artifacts', appId, 'users', state.user.uid, collectionName, docId);
                  
              try { await deleteDoc(docRef); showToast("Удалено"); } catch(e) { showToast("Ошибка удаления"); }
         };
@@ -488,7 +484,7 @@
 
             const articleObj = { title: titleInput.value, content: contentInput.value, createdAt: Date.now(), authorProfile: state.profile };
 
-            if (window.isLocalMode || !window.fbDb) {
+            if (isLocalMode || !fbDb) {
                 articleObj.id = 'art_' + Date.now();
                 const arr = JSON.parse(safeLocal.get('mag_articles') || '[]');
                 arr.push(articleObj);
@@ -499,8 +495,8 @@
             }
 
             try {
-                const { collection, addDoc } = window.fbMethods;
-                const articlesRef = collection(window.fbDb, 'artifacts', window.appId, 'public', 'data', 'articles');
+                const { collection, addDoc } = fbMethods;
+                const articlesRef = collection(fbDb, 'artifacts', appId, 'public', 'data', 'articles');
                 await addDoc(articlesRef, articleObj);
                 showToast("Статья опубликована!");
                 navigateTo('dashboard');
@@ -573,16 +569,14 @@
             }, 50);
         }
 
-        // Подключение кнопок тултипа
+        // Подключение кнопок тултипа. Используем pointerdown для безупречной работы на Android
         const setupTooltipButton = (id, actionType) => {
             const btn = document.getElementById(id);
             if (!btn) return;
 
-            const actionHandler = (e) => {
-                if (e && typeof e.preventDefault === 'function') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
+            btn.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 
                 if (!state.selectedText) return;
                 
@@ -599,30 +593,13 @@
                     window.open(`https://dictionary.cambridge.org/dictionary/english-russian/${safeWord}`, '_blank');
                     elements.tooltip.classList.add('hidden');
                 }
-            };
-
-            btn.addEventListener('touchend', actionHandler, { passive: false });
-            btn.addEventListener('click', actionHandler);
+            });
         };
 
         setupTooltipButton('btn-save-word', 'word');
         setupTooltipButton('btn-save-quote', 'quote');
         setupTooltipButton('btn-listen', 'listen');
         setupTooltipButton('btn-translate', 'translate');
-
-        // Обработчики сенсора для выделения
-        elements.tooltip.addEventListener('mousedown', (e) => e.preventDefault());
-        elements.tooltip.addEventListener('touchstart', (e) => e.preventDefault(), {passive: false});
-        
-        document.addEventListener('mouseup', (e) => {
-            if (elements.tooltip.contains(e.target) || e.target.closest('#selection-tooltip')) return;
-            handleSelection();
-        });
-
-        document.addEventListener('touchend', (e) => {
-            if (elements.tooltip.contains(e.target) || e.target.closest('#selection-tooltip')) return;
-            handleSelection();
-        });
 
         document.addEventListener('selectionchange', () => {
             if (state.view !== 'reader') return;
@@ -635,7 +612,7 @@
                 } else {
                     handleSelection();
                 }
-            }, 400); 
+            }, 300); 
         });
 
         function updateProgress() {
@@ -687,7 +664,7 @@
             const newTranslation = elements.editInput.value.trim();
             const wordId = state.editingWordId;
             
-            if (window.isLocalMode || !window.fbDb) {
+            if (isLocalMode || !fbDb) {
                 let arr = JSON.parse(safeLocal.get('mag_words') || '[]');
                 const wordIndex = arr.findIndex(w => w.id === wordId);
                 if (wordIndex !== -1) {
@@ -697,8 +674,8 @@
                 }
             } else {
                 try {
-                    const { doc, setDoc } = window.fbMethods;
-                    const docRef = doc(window.fbDb, 'artifacts', window.appId, 'public', 'data', 'saved_words', wordId);
+                    const { doc, setDoc } = fbMethods;
+                    const docRef = doc(fbDb, 'artifacts', appId, 'public', 'data', 'saved_words', wordId);
                     await setDoc(docRef, { translation: newTranslation }, { merge: true });
                 } catch (error) { showToast("Ошибка сохранения перевода"); }
             }
@@ -886,7 +863,7 @@
                 html = `
                     <div class="flex-grow flex flex-col items-center justify-center min-h-[80vh] px-4">
                         <div class="absolute top-6 right-6 flex items-center gap-4">
-                            ${window.isLocalMode ? '<span class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-amber-700 bg-amber-100 dark:bg-amber-900/40 dark:text-amber-400 rounded-full border border-amber-200 dark:border-amber-800" title="Работает локально">Локальный режим</span>' : ''}
+                            ${isLocalMode ? '<span class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-amber-700 bg-amber-100 dark:bg-amber-900/40 dark:text-amber-400 rounded-full border border-amber-200 dark:border-amber-800" title="Работает локально">Локальный режим</span>' : ''}
                             <button onclick="toggleTheme()" class="p-2 text-mag-muted hover:text-mag-text dark:text-gray-400 dark:hover:text-white bg-white dark:bg-gray-800 rounded-full border border-mag-border dark:border-gray-700 shadow-sm transition-all">${getThemeIcon()}</button>
                         </div>
                         <div class="text-center mb-12 md:mb-16 fade-in">
@@ -911,7 +888,7 @@
                     <nav class="flex justify-between items-center mb-8 pb-4 md:pb-6 border-b border-mag-border dark:border-gray-700">
                         <div class="flex items-center gap-3">
                             <h1 class="font-serif text-2xl md:text-3xl text-mag-text dark:text-gray-100">Magazine<span class="text-mag-primary dark:text-mag-primaryLight italic">Learner</span></h1>
-                            ${window.isLocalMode ? '<span class="hidden md:inline-flex items-center px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 rounded" title="Работает локально">Local Mode</span>' : ''}
+                            ${isLocalMode ? '<span class="hidden md:inline-flex items-center px-2 py-0.5 text-[10px] uppercase tracking-wider font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 rounded" title="Работает локально">Local Mode</span>' : ''}
                         </div>
                         <div class="flex items-center gap-2 md:gap-4">
                             <button onclick="toggleTheme()" class="p-2 text-mag-muted dark:text-gray-400 hover:text-mag-text dark:hover:text-white transition-colors rounded-full hover:bg-gray-100 dark:hover:bg-gray-800">${getThemeIcon()}</button>
@@ -1028,52 +1005,62 @@
                 updateDashboardTabsUI();
             }
         }
-    </script>
 
-    <!-- 2. ИЗОЛИРОВАННЫЙ FIREBASE МОДУЛЬ (Загружается безопасно) -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // ДИНАМИЧЕСКИЙ ЗАПУСК FIREBASE С ПЕРЕХВАТОМ ОШИБОК
+        async function bootApplication() {
+            const timeout = setTimeout(() => {
+                if (state.view === 'auth' || !state.user) {
+                    console.warn("Сработало ограничение WebView на загрузку модулей. Запуск локального режима.");
+                    isLocalMode = true;
+                    loadProfileAndNavigate();
+                }
+            }, 3000); // 3 секунды на ответ
 
-        try {
-            const firebaseConfig = {
-                apiKey: "AIzaSyD7A24gqyocYPVkiMtRFWHoSDRp4egnGh8",
-                authDomain: "magazine-learner.firebaseapp.com",
-                projectId: "magazine-learner",
-                storageBucket: "magazine-learner.firebasestorage.app",
-                messagingSenderId: "364208723805",
-                appId: window.appId
-            };
+            try {
+                const fbAppModule = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
+                const fbAuthModule = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                const fbDbModule = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
 
-            const app = initializeApp(firebaseConfig);
-            window.fbAuth = getAuth(app);
-            window.fbDb = getFirestore(app);
-            window.fbMethods = { collection, doc, setDoc, deleteDoc, onSnapshot, addDoc };
+                fbMethods = {
+                    collection: fbDbModule.collection,
+                    doc: fbDbModule.doc,
+                    setDoc: fbDbModule.setDoc,
+                    deleteDoc: fbDbModule.deleteDoc,
+                    onSnapshot: fbDbModule.onSnapshot,
+                    addDoc: fbDbModule.addDoc
+                };
 
-            let authPromise;
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                authPromise = signInWithCustomToken(window.fbAuth, __initial_auth_token).catch(() => signInAnonymously(window.fbAuth));
-            } else {
-                authPromise = signInAnonymously(window.fbAuth);
-            }
+                fbApp = fbAppModule.initializeApp(firebaseConfig);
+                fbAuth = fbAuthModule.getAuth(fbApp);
+                fbDb = fbDbModule.getFirestore(fbApp);
 
-            authPromise.then(() => {
-                onAuthStateChanged(window.fbAuth, (user) => {
-                    if (window.isLocalMode) return;
-                    clearTimeout(window.bootTimeout);
-                    window.state.user = user;
-                    window.loadProfileAndNavigate();
+                await fbAuthModule.setPersistence(fbAuth, fbAuthModule.inMemoryPersistence).catch(() => {});
+
+                let authPromise;
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    authPromise = fbAuthModule.signInWithCustomToken(fbAuth, __initial_auth_token).catch(() => fbAuthModule.signInAnonymously(fbAuth));
+                } else {
+                    authPromise = fbAuthModule.signInAnonymously(fbAuth);
+                }
+
+                await authPromise;
+
+                fbAuthModule.onAuthStateChanged(fbAuth, (user) => {
+                    clearTimeout(timeout);
+                    if (isLocalMode) return;
+                    state.user = user;
+                    loadProfileAndNavigate();
                 });
-            }).catch(e => {
-                console.error("Auth error:", e);
-                window.startAppLocal();
-            });
 
-        } catch (e) {
-            console.error("Firebase module init error:", e);
-            window.startAppLocal();
+            } catch (e) {
+                console.error("Android System WebView заблокировал Firebase:", e);
+                clearTimeout(timeout);
+                isLocalMode = true;
+                loadProfileAndNavigate();
+            }
         }
+
+        bootApplication();
     </script>
 </body>
 </html>
