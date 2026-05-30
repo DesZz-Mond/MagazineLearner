@@ -112,6 +112,12 @@
         html.dark .article-content mark { background-color: rgba(166, 123, 91, 0.2); }
         .article-content strong { font-weight: 600; }
 
+        /* CSS для Флеш-карточек (3D переворот) */
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+
         /* Тултип (Десктоп) */
         .tooltip-arrow::after {
             content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #1f2937 transparent transparent transparent;
@@ -215,11 +221,6 @@
             Слово
         </button>
         <div class="w-px h-6 bg-gray-600 mx-1 tooltip-divider"></div>
-        <button id="btn-save-quote" class="px-3 py-2 sm:py-1.5 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap">
-            <svg class="w-4 h-4 text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
-            Цитата
-        </button>
-        <div class="w-px h-6 bg-gray-600 mx-1 tooltip-divider"></div>
         <button id="btn-translate" class="px-3 py-2 sm:py-1.5 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap text-blue-300">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"></path></svg>
             Перевод
@@ -253,7 +254,25 @@
             set: (key, val) => { try { localStorage.setItem(key, val); } catch(e) {} }
         };
 
-        const state = { user: null, profile: null, view: 'auth', dashboardTab: 'articles', articles: [], words: [], quotes: [], currentArticle: null, selectedText: '', readerFontSize: 'text-base', unsubs: [], editingWordId: null };
+        const state = { 
+            user: null, 
+            profile: null, 
+            view: 'auth', 
+            dashboardTab: 'articles', 
+            articles: [], 
+            words: [], 
+            quotes: [], 
+            currentArticle: null, 
+            selectedText: '', 
+            selectedContext: '', 
+            readerFontSize: 'text-base', 
+            unsubs: [], 
+            editingWordId: null,
+            flashcards: [],
+            flashcardIndex: 0,
+            flashcardFlipped: false
+        };
+        
         const elements = {
             app: document.getElementById('app'),
             tooltip: document.getElementById('selection-tooltip'),
@@ -351,21 +370,9 @@
                     });
                     fetchedWords.sort((a, b) => b.createdAt - a.createdAt);
                     state.words = fetchedWords;
-                    if(state.view === 'dashboard') updateDashboardContent();
+                    if(state.view === 'dashboard' && state.dashboardTab === 'words') updateDashboardContent();
                 });
                 state.unsubs.push(unsubWords);
-
-                const quotesRef = collection(fbDb, 'artifacts', appId, 'users', state.user.uid, 'saved_quotes');
-                const unsubQuotes = onSnapshot(quotesRef, (snapshot) => {
-                    const fetchedQuotes = [];
-                    snapshot.forEach(doc => {
-                        if(doc.data().profile === state.profile) fetchedQuotes.push({ id: doc.id, ...doc.data() });
-                    });
-                    fetchedQuotes.sort((a, b) => b.createdAt - a.createdAt);
-                    state.quotes = fetchedQuotes;
-                    if(state.view === 'dashboard') updateDashboardContent();
-                });
-                state.unsubs.push(unsubQuotes);
 
             } catch (error) { console.error("Listener error:", error); }
         }
@@ -381,13 +388,11 @@
             if (type === 'word') {
                 showToast("Изучаем и переводим...");
                 try {
-                    // Добавлено dt=bd для получения словарных (альтернативных) вариантов перевода
                     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ru&dt=t&dt=bd&q=${encodeURIComponent(text)}`;
                     const transRes = await fetch(url);
                     const transData = await transRes.json();
                     
                     let variants = [];
-                    // Парсим альтернативные варианты перевода, если они есть (обычно бывают для отдельных слов)
                     if (transData[1] && Array.isArray(transData[1])) {
                         transData[1].forEach(pos => {
                             if (pos[1] && Array.isArray(pos[1])) {
@@ -397,10 +402,8 @@
                     }
                     
                     if (variants.length > 0) {
-                        // Убираем дубликаты и берем первые 4 варианта через запятую
                         translation = [...new Set(variants)].slice(0, 4).join(', ');
                     } else if (transData && transData[0] && transData[0][0] && transData[0][0][0]) {
-                        // Если словарных вариантов нет (например, это целая фраза), берем основной прямой перевод
                         translation = transData[0][0][0];
                     }
                 } catch (e) { }
@@ -422,29 +425,37 @@
                 } catch (e) { }
             }
 
-            const itemObj = { text, translation, phonetics, partOfSpeech, profile: state.profile, articleId: state.currentArticle ? state.currentArticle.id : null, articleTitle: state.currentArticle ? state.currentArticle.title : 'Неизвестно', createdAt: Date.now() };
+            const itemObj = { 
+                text, 
+                translation, 
+                phonetics, 
+                partOfSpeech, 
+                context: state.selectedContext, // Сохраняем найденный контекст
+                profile: state.profile, 
+                articleId: state.currentArticle ? state.currentArticle.id : null, 
+                articleTitle: state.currentArticle ? state.currentArticle.title : 'Неизвестно', 
+                createdAt: Date.now() 
+            };
 
             if (isLocalMode || !fbDb) {
-                const key = type === 'word' ? 'mag_words' : 'mag_quotes';
+                const key = 'mag_words';
                 const arr = JSON.parse(safeLocal.get(key) || '[]');
                 itemObj.id = 'loc_' + Date.now() + Math.random().toString(36).substring(2, 9);
                 arr.push(itemObj);
                 safeLocal.set(key, JSON.stringify(arr));
-                showToast(`Сохранено локально в ${type === 'word' ? 'Словарь' : 'Цитатник'}`);
+                showToast(`Сохранено локально в Словарь`);
                 if(state.view === 'dashboard') setupFirestoreListeners();
                 return;
             }
 
-            const collectionName = type === 'word' ? 'saved_words' : 'saved_quotes';
+            const collectionName = 'saved_words';
             const { collection, addDoc } = fbMethods;
             
-            const colRef = type === 'word' 
-                ? collection(fbDb, 'artifacts', appId, 'public', 'data', collectionName)
-                : collection(fbDb, 'artifacts', appId, 'users', state.user.uid, collectionName);
+            const colRef = collection(fbDb, 'artifacts', appId, 'public', 'data', collectionName);
                 
             try {
                 await addDoc(colRef, itemObj);
-                showToast(`Сохранено в ${type === 'word' ? 'Словарь' : 'Цитатник'}`);
+                showToast(`Сохранено в Словарь`);
             } catch (error) { showToast("Ошибка сохранения."); }
         };
 
@@ -467,7 +478,7 @@
              }
 
              if (isLocalMode || !fbDb) {
-                 const key = type === 'word' ? 'mag_words' : 'mag_quotes';
+                 const key = 'mag_words';
                  let arr = JSON.parse(safeLocal.get(key) || '[]');
                  arr = arr.filter(i => i.id !== docId);
                  safeLocal.set(key, JSON.stringify(arr));
@@ -476,11 +487,9 @@
                  return;
              }
 
-             const collectionName = type === 'word' ? 'saved_words' : 'saved_quotes';
+             const collectionName = 'saved_words';
              const { doc, deleteDoc } = fbMethods;
-             const docRef = type === 'word'
-                 ? doc(fbDb, 'artifacts', appId, 'public', 'data', collectionName, docId)
-                 : doc(fbDb, 'artifacts', appId, 'users', state.user.uid, collectionName, docId);
+             const docRef = doc(fbDb, 'artifacts', appId, 'public', 'data', collectionName, docId);
                  
              try { await deleteDoc(docRef); showToast("Удалено"); } catch(e) { showToast("Ошибка удаления"); }
         };
@@ -527,7 +536,7 @@
             }
         };
 
-        // Обработка выделения текста (Адаптировано для ПК и мобилок)
+        // Обработка выделения текста и захват контекста
         function handleSelection() {
             if (state.view !== 'reader') return;
             
@@ -539,9 +548,23 @@
 
                 if (text.length > 0) {
                     state.selectedText = text;
+                    
+                    // Попытка захватить контекст (целое предложение)
+                    let contextText = '';
                     const range = selection.getRangeAt(0);
-                    const rect = range.getBoundingClientRect();
+                    if(range.startContainer) {
+                        const block = range.startContainer.nodeType === 3 ? range.startContainer.parentNode.closest('p, div, blockquote, li, h2') : range.startContainer.closest('p, div, blockquote, li, h2');
+                        if(block) {
+                            const blockText = block.innerText || block.textContent || '';
+                            // Разбиваем на предложения по точкам, воскл. и вопр. знакам
+                            const sentences = blockText.split(/(?<=[.!?])\s+/);
+                            contextText = sentences.find(s => s.includes(text)) || blockText;
+                            if(contextText.length > 250) contextText = contextText.substring(0, 250) + "...";
+                        }
+                    }
+                    state.selectedContext = contextText.trim();
 
+                    const rect = range.getBoundingClientRect();
                     elements.tooltip.classList.remove('hidden');
                     
                     setTimeout(() => {
@@ -587,7 +610,6 @@
             }, 50);
         }
 
-        // Подключение кнопок тултипа. Используем pointerdown для безупречной работы на Android
         const setupTooltipButton = (id, actionType) => {
             const btn = document.getElementById(id);
             if (!btn) return;
@@ -599,7 +621,6 @@
                 if (!state.selectedText) return;
                 
                 if (actionType === 'word') window.saveToFirestore('word', state.selectedText);
-                if (actionType === 'quote') window.saveToFirestore('quote', state.selectedText);
                 if (actionType === 'listen') {
                     if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
                         window.speechSynthesis.cancel();
@@ -619,7 +640,6 @@
         };
 
         setupTooltipButton('btn-save-word', 'word');
-        setupTooltipButton('btn-save-quote', 'quote');
         setupTooltipButton('btn-listen', 'listen');
         setupTooltipButton('btn-translate', 'translate');
 
@@ -673,6 +693,29 @@
 
         window.setDashboardTab = (tab) => { state.dashboardTab = tab; updateDashboardContent(); updateDashboardTabsUI(); };
         
+        // Флеш-карточки
+        window.startFlashcards = () => {
+            if(state.words.length === 0) {
+                showToast("Словарь пуст! Добавьте слова для тренировки.");
+                return;
+            }
+            state.flashcards = [...state.words].sort(() => Math.random() - 0.5); // Перемешиваем
+            state.flashcardIndex = 0;
+            state.flashcardFlipped = false;
+            navigateTo('flashcards');
+        };
+        window.flipFlashcard = () => {
+            state.flashcardFlipped = !state.flashcardFlipped;
+            renderApp();
+        };
+        window.nextFlashcard = (step) => {
+            state.flashcardFlipped = false;
+            state.flashcardIndex += step;
+            if (state.flashcardIndex < 0) state.flashcardIndex = state.flashcards.length - 1;
+            if (state.flashcardIndex >= state.flashcards.length) state.flashcardIndex = 0;
+            renderApp();
+        };
+
         window.openEditModal = (id, currentTranslation) => {
             state.editingWordId = id;
             elements.editInput.value = currentTranslation === 'undefined' || !currentTranslation ? '' : currentTranslation;
@@ -765,7 +808,7 @@
         }
 
         function updateDashboardTabsUI() {
-            ['articles', 'words', 'quotes'].forEach(t => {
+            ['articles', 'words'].forEach(t => {
                 const el = document.getElementById(`tab-${t}`);
                 if(!el) return;
                 if(t === state.dashboardTab) {
@@ -822,23 +865,41 @@
             else if (state.dashboardTab === 'words') {
                 container.innerHTML = `
                     <div class="bg-white dark:bg-gray-800 rounded-xl border border-mag-border dark:border-gray-700 shadow-sm overflow-hidden">
-                        <div class="p-6 border-b border-mag-border dark:border-gray-700 bg-mag-highlight/30 dark:bg-gray-700/30 flex justify-between items-center">
-                            <h3 class="font-serif text-xl text-mag-primary dark:text-mag-primaryLight">Мой Словарь</h3>
-                            <span class="text-sm font-semibold bg-mag-primary dark:bg-mag-primaryLight text-white px-3 py-1 rounded-full">${state.words.length} слов</span>
+                        <div class="p-4 md:p-6 border-b border-mag-border dark:border-gray-700 bg-mag-highlight/30 dark:bg-gray-700/30 flex justify-between items-center flex-wrap gap-4">
+                            <div>
+                                <h3 class="font-serif text-xl text-mag-primary dark:text-mag-primaryLight">Мой Словарь</h3>
+                                <span class="text-sm font-semibold bg-mag-primary dark:bg-mag-primaryLight text-white px-3 py-1 rounded-full mt-1 inline-block">${state.words.length} слов</span>
+                            </div>
+                            ${state.words.length > 0 ? `
+                            <button onclick="startFlashcards()" class="px-5 py-2.5 bg-gradient-to-r from-mag-primary to-mag-primaryLight text-white rounded-xl text-sm font-medium shadow-sm hover:shadow-md transition-all flex items-center gap-2 transform active:scale-95">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                                Тренировка
+                            </button>
+                            ` : ''}
                         </div>
                         <ul class="divide-y divide-mag-border dark:divide-gray-700 max-h-[60vh] overflow-y-auto custom-scrollbar">
                             ${state.words.length === 0 ? `<li class="p-8">${emptyStateBlock("Словарь пуст", "Выделите любое слово во время чтения статьи, чтобы сохранить его сюда.")}</li>` : ''}
-                            ${state.words.map(w => `
+                            ${state.words.map(w => {
+                                // Подсветка искомого слова в контексте
+                                const highlightedContext = w.context ? w.context.replace(new RegExp(`(${w.text})`, 'gi'), `<strong class="text-mag-text dark:text-gray-200 font-semibold">$1</strong>`) : '';
+                                return `
                                 <li class="p-4 md:p-6 flex justify-between items-start hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
                                     <div class="pr-4 w-full">
                                         <p class="text-lg md:text-xl font-medium text-mag-text dark:text-gray-100">${w.text}</p>
                                         ${(w.translation || w.phonetics || w.partOfSpeech) ? `
-                                            <div class="text-base flex flex-wrap items-center gap-2 mt-2 mb-3">
+                                            <div class="text-base flex flex-wrap items-center gap-2 mt-2 mb-2">
                                                 ${w.phonetics ? `<span class="text-sm font-sans text-mag-muted dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded tracking-wide">${w.phonetics}</span>` : ''}
                                                 ${w.partOfSpeech ? `<span class="text-xs uppercase tracking-wider text-blue-600 dark:text-blue-400 font-sans font-bold">${w.partOfSpeech}</span>` : ''}
                                                 ${w.translation ? `<span class="font-sans text-mag-text dark:text-gray-300">— ${w.translation}</span>` : ''}
                                             </div>
                                         ` : ''}
+                                        
+                                        ${w.context ? `
+                                            <blockquote class="text-sm italic text-mag-muted dark:text-gray-500 mt-3 mb-2 border-l-2 border-mag-primary/30 dark:border-mag-primaryLight/30 pl-3 max-w-xl">
+                                                "${highlightedContext}"
+                                            </blockquote>
+                                        ` : ''}
+
                                         <p class="text-xs text-mag-muted dark:text-gray-400 flex items-center gap-1.5 mt-2">
                                             <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
                                             <span class="truncate max-w-[150px] md:max-w-xs">${w.articleTitle}</span> • ${new Date(w.createdAt).toLocaleDateString('ru-RU')}
@@ -853,26 +914,9 @@
                                         </button>
                                     </div>
                                 </li>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </ul>
-                    </div>
-                `;
-            }
-            else if (state.dashboardTab === 'quotes') {
-                container.innerHTML = `
-                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        ${state.quotes.length === 0 ? `<div class="col-span-full">${emptyStateBlock("Нет цитат", "Сохраняйте интересные фразы из статей для повторения.")}</div>` : ''}
-                        ${state.quotes.map(q => `
-                            <div class="bg-white dark:bg-gray-800 p-6 md:p-8 rounded-xl border border-mag-border dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow relative group flex flex-col justify-between">
-                                <blockquote class="font-serif text-lg md:text-xl text-mag-text dark:text-gray-200 italic leading-relaxed mb-6">"${q.text}"</blockquote>
-                                <div class="flex justify-between items-end border-t border-mag-border dark:border-gray-700 pt-4 mt-auto">
-                                    <p class="text-xs text-mag-muted dark:text-gray-400 pr-2">${q.articleTitle}</p>
-                                    <button onclick="deleteItem('quote', '${q.id}')" class="text-gray-400 hover:text-red-500 transition-colors md:opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0">
-                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        `).join('')}
                     </div>
                 `;
             }
@@ -905,6 +949,61 @@
                     </div>
                 `;
             } 
+            else if (state.view === 'flashcards') {
+                const card = state.flashcards[state.flashcardIndex];
+                const contextWithBlank = card.context ? card.context.replace(new RegExp(`(${card.text})`, 'gi'), '___') : '';
+                
+                html = `
+                    <nav class="flex justify-between items-center mb-6 md:mb-10 pb-4 border-b border-mag-border dark:border-gray-700">
+                        <button onclick="goHome()" class="text-mag-muted dark:text-gray-400 hover:text-mag-primary dark:hover:text-mag-primaryLight transition-colors flex items-center gap-2 font-medium">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg> 
+                            <span class="hidden sm:inline">Завершить</span>
+                        </button>
+                        <span class="font-serif text-lg text-mag-text dark:text-gray-100">Карточка ${state.flashcardIndex + 1} из ${state.flashcards.length}</span>
+                        <div class="w-20"></div> <!-- Placeholder для центровки -->
+                    </nav>
+
+                    <div class="flex-grow flex flex-col items-center justify-center max-w-2xl mx-auto w-full px-2 fade-in pb-20">
+                        <div onclick="flipFlashcard()" class="w-full aspect-[4/3] md:aspect-[16/9] perspective-1000 cursor-pointer group">
+                            <div class="w-full h-full relative transition-transform duration-500 transform-style-3d ${state.flashcardFlipped ? 'rotate-y-180' : ''}">
+                                
+                                <!-- Лицевая сторона (Английский) -->
+                                <div class="absolute inset-0 backface-hidden bg-white dark:bg-gray-800 rounded-3xl shadow-xl border border-mag-border dark:border-gray-700 flex flex-col items-center justify-center p-6 md:p-8 text-center">
+                                    <p class="text-xs font-bold uppercase tracking-widest text-mag-muted dark:text-gray-400 mb-4 md:mb-6">Слово</p>
+                                    <h2 class="text-4xl md:text-5xl font-serif text-mag-text dark:text-gray-100 mb-4 md:mb-6">${card.text}</h2>
+                                    ${card.context ? `<p class="text-sm md:text-base text-mag-muted dark:text-gray-400 italic max-w-md mx-auto line-clamp-4 leading-relaxed">"${contextWithBlank}"</p>` : ''}
+                                    <p class="absolute bottom-6 text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5 opacity-60">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg> 
+                                        Нажмите, чтобы перевернуть
+                                    </p>
+                                </div>
+
+                                <!-- Обратная сторона (Русский) -->
+                                <div class="absolute inset-0 backface-hidden rotate-y-180 bg-gradient-to-br from-mag-primary to-mag-primaryLight text-white rounded-3xl shadow-xl flex flex-col items-center justify-center p-6 md:p-8 text-center">
+                                    <p class="text-xs font-bold uppercase tracking-widest text-white/70 mb-4 md:mb-6">Перевод</p>
+                                    <h2 class="text-3xl md:text-4xl font-serif mb-4 text-white">${card.translation || 'Нет перевода'}</h2>
+                                    <div class="flex gap-3 text-sm md:text-base font-medium text-white/90 mb-4 md:mb-6">
+                                        ${card.phonetics ? `<span>${card.phonetics}</span>` : ''}
+                                        ${card.partOfSpeech ? `<span class="uppercase text-yellow-300 font-bold">${card.partOfSpeech}</span>` : ''}
+                                    </div>
+                                    ${card.context ? `<p class="text-sm md:text-base text-white/80 italic max-w-md mx-auto leading-relaxed">"${card.context.replace(new RegExp(`(${card.text})`, 'gi'), `<strong class="text-white bg-white/20 px-1 rounded">$1</strong>`)}"</p>` : ''}
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- Кнопки управления карточками -->
+                        <div class="flex items-center gap-6 mt-10">
+                            <button onclick="nextFlashcard(-1)" class="p-4 rounded-full bg-white dark:bg-gray-800 border border-mag-border dark:border-gray-700 shadow-sm hover:shadow-md transition-all text-mag-muted dark:text-gray-400 hover:text-mag-primary dark:hover:text-mag-primaryLight active:scale-95">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                            </button>
+                            <button onclick="nextFlashcard(1)" class="px-8 py-4 rounded-full bg-mag-primary hover:bg-mag-primaryHover dark:bg-mag-primaryLight text-white shadow-md hover:shadow-lg transition-all active:scale-95 font-medium flex items-center gap-2">
+                                Следующее <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
             else if (state.view === 'dashboard') {
                 html = `
                     <nav class="flex justify-between items-center mb-8 pb-4 md:pb-6 border-b border-mag-border dark:border-gray-700">
@@ -930,9 +1029,6 @@
                                 <button id="tab-articles" onclick="setDashboardTab('articles')" class="pb-3 px-1 text-sm font-semibold tracking-wider uppercase border-b-2 transition-colors whitespace-nowrap ${state.dashboardTab === 'articles' ? 'border-mag-primary text-mag-primary dark:text-mag-primaryLight dark:border-mag-primaryLight' : 'border-transparent text-mag-muted dark:text-gray-400 hover:text-mag-text dark:hover:text-gray-200'}">Библиотека</button>
                                 <button id="tab-words" onclick="setDashboardTab('words')" class="pb-3 px-1 text-sm font-semibold tracking-wider uppercase border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${state.dashboardTab === 'words' ? 'border-mag-primary text-mag-primary dark:text-mag-primaryLight dark:border-mag-primaryLight' : 'border-transparent text-mag-muted dark:text-gray-400 hover:text-mag-text dark:hover:text-gray-200'}">
                                     Словарь <span class="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">${state.words.length}</span>
-                                </button>
-                                <button id="tab-quotes" onclick="setDashboardTab('quotes')" class="pb-3 px-1 text-sm font-semibold tracking-wider uppercase border-b-2 transition-colors flex items-center gap-2 whitespace-nowrap ${state.dashboardTab === 'quotes' ? 'border-mag-primary text-mag-primary dark:text-mag-primaryLight dark:border-mag-primaryLight' : 'border-transparent text-mag-muted dark:text-gray-400 hover:text-mag-text dark:hover:text-gray-200'}">
-                                    Цитатник <span class="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full text-xs">${state.quotes.length}</span>
                                 </button>
                             </div>
                             <button onclick="goAdmin()" class="mb-3 shrink-0 flex items-center justify-center sm:justify-start gap-2 text-sm text-mag-muted dark:text-gray-400 hover:text-mag-primary dark:hover:text-mag-primaryLight transition-colors px-4 py-2 rounded-lg hover:bg-mag-highlight/30 dark:hover:bg-gray-800 border border-mag-border dark:border-gray-700 sm:border-none bg-white dark:bg-gray-800 sm:bg-transparent w-full sm:w-auto self-end sm:self-auto">
