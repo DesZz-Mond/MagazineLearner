@@ -234,7 +234,6 @@
         </div>
     </div>
 
-    <!-- КЛАССИЧЕСКИЙ СКРИПТ: Обходит блокировку модулей в Android WebView -->
     <script>
         // 1. Инициализация Telegram WebApp
         try {
@@ -261,7 +260,6 @@
             dashboardTab: 'articles', 
             articles: [], 
             words: [], 
-            quotes: [], 
             currentArticle: null, 
             selectedText: '', 
             selectedContext: '', 
@@ -270,7 +268,9 @@
             editingWordId: null,
             flashcards: [],
             flashcardIndex: 0,
-            flashcardFlipped: false
+            flashcardFlipped: false,
+            // Таймер
+            timer: { active: false, remaining: 0, interval: null, isPaused: false }
         };
         
         const elements = {
@@ -294,6 +294,83 @@
             storageBucket: "magazine-learner.firebasestorage.app",
             messagingSenderId: "364208723805",
             appId: appId
+        };
+
+        // ТАЙМЕР
+        window.toggleTimerMenu = () => {
+            const menu = document.getElementById('timer-menu');
+            if(menu) menu.classList.toggle('hidden');
+        };
+
+        window.setTimer = (minutes) => {
+            if(state.timer.interval) clearInterval(state.timer.interval);
+            state.timer.remaining = minutes * 60;
+            state.timer.active = true;
+            state.timer.isPaused = false;
+            
+            state.timer.interval = setInterval(() => {
+                if(!state.timer.isPaused && state.timer.remaining > 0) {
+                    state.timer.remaining--;
+                    window.updateTimerUI();
+                } else if (state.timer.remaining <= 0) {
+                    clearInterval(state.timer.interval);
+                    state.timer.active = false;
+                    window.updateTimerUI();
+                    showToast("Время сессии подошло к концу!");
+                }
+            }, 1000);
+            
+            window.updateTimerUI();
+            window.toggleTimerMenu();
+        };
+
+        window.toggleTimer = () => {
+            state.timer.isPaused = !state.timer.isPaused;
+            window.updateTimerUI();
+        };
+
+        window.stopTimer = () => {
+            if(state.timer.interval) clearInterval(state.timer.interval);
+            state.timer.active = false;
+            state.timer.remaining = 0;
+            window.updateTimerUI();
+            const menu = document.getElementById('timer-menu');
+            if(menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+        };
+
+        window.updateTimerUI = () => {
+            const display = document.getElementById('timer-display-text');
+            const controls = document.getElementById('timer-controls');
+            const setup = document.getElementById('timer-setup');
+            
+            if(!display) return;
+            
+            if(!state.timer.active) {
+                display.innerHTML = '⏱ Таймер';
+                display.classList.remove('text-mag-primary', 'dark:text-mag-primaryLight', 'animate-pulse');
+                if(setup) setup.classList.remove('hidden');
+                if(controls) controls.classList.add('hidden');
+                return;
+            }
+            
+            const m = Math.floor(state.timer.remaining / 60).toString().padStart(2, '0');
+            const s = (state.timer.remaining % 60).toString().padStart(2, '0');
+            
+            if (state.timer.isPaused) {
+                display.innerHTML = `<span class="opacity-50">⏸ ${m}:${s}</span>`;
+                display.classList.remove('animate-pulse');
+            } else {
+                display.innerHTML = `<span class="text-mag-primary dark:text-mag-primaryLight font-bold">⏳ ${m}:${s}</span>`;
+                display.classList.add('animate-pulse');
+            }
+                
+            if(setup) setup.classList.add('hidden');
+            if(controls) controls.classList.remove('hidden');
+            
+            const playPauseBtn = document.getElementById('timer-play-pause');
+            if(playPauseBtn) {
+                playPauseBtn.innerHTML = state.timer.isPaused ? '▶️ Продолжить' : '⏸ Пауза';
+            }
         };
 
         function loadProfileAndNavigate() {
@@ -325,6 +402,7 @@
             if (view === 'reader') {
                 window.scrollTo(0, 0);
                 elements.progressBarContainer.classList.remove('hidden');
+                window.updateTimerUI(); // Восстанавливаем визуал таймера
             }
         }
 
@@ -340,7 +418,6 @@
             if (isLocalMode || !fbDb) {
                 state.articles = JSON.parse(safeLocal.get('mag_articles') || '[]').sort((a,b) => b.createdAt - a.createdAt);
                 state.words = JSON.parse(safeLocal.get('mag_words') || '[]').filter(w => w.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
-                state.quotes = JSON.parse(safeLocal.get('mag_quotes') || '[]').filter(q => q.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
                 
                 if(state.view === 'dashboard') {
                     if(state.dashboardTab === 'articles') renderApp();
@@ -431,6 +508,7 @@
                 phonetics, 
                 partOfSpeech, 
                 context: state.selectedContext, // Сохраняем найденный контекст
+                correctCount: 0, // Прогресс изучения
                 profile: state.profile, 
                 articleId: state.currentArticle ? state.currentArticle.id : null, 
                 articleTitle: state.currentArticle ? state.currentArticle.title : 'Неизвестно', 
@@ -450,7 +528,6 @@
 
             const collectionName = 'saved_words';
             const { collection, addDoc } = fbMethods;
-            
             const colRef = collection(fbDb, 'artifacts', appId, 'public', 'data', collectionName);
                 
             try {
@@ -479,7 +556,7 @@
 
              if (isLocalMode || !fbDb) {
                  const key = 'mag_words';
-                 let arr = JSON.parse(safeLocal.get(key) || '[]');
+                 let arr = JSON.parse(safeLocal.get('mag_words') || '[]');
                  arr = arr.filter(i => i.id !== docId);
                  safeLocal.set(key, JSON.stringify(arr));
                  showToast("Удалено");
@@ -556,7 +633,6 @@
                         const block = range.startContainer.nodeType === 3 ? range.startContainer.parentNode.closest('p, div, blockquote, li, h2') : range.startContainer.closest('p, div, blockquote, li, h2');
                         if(block) {
                             const blockText = block.innerText || block.textContent || '';
-                            // Разбиваем на предложения по точкам, воскл. и вопр. знакам
                             const sentences = blockText.split(/(?<=[.!?])\s+/);
                             contextText = sentences.find(s => s.includes(text)) || blockText;
                             if(contextText.length > 250) contextText = contextText.substring(0, 250) + "...";
@@ -693,25 +769,67 @@
 
         window.setDashboardTab = (tab) => { state.dashboardTab = tab; updateDashboardContent(); updateDashboardTabsUI(); };
         
-        // Флеш-карточки
+        // Флеш-карточки (Интервальное повторение)
         window.startFlashcards = () => {
-            if(state.words.length === 0) {
-                showToast("Словарь пуст! Добавьте слова для тренировки.");
+            // Выбираем только те слова, которые изучены менее 5 раз
+            const wordsToLearn = state.words.filter(w => (w.correctCount || 0) < 5);
+            if(wordsToLearn.length === 0) {
+                showToast("Вы выучили все слова! 🎉 Тренировка завершена.");
                 return;
             }
-            state.flashcards = [...state.words].sort(() => Math.random() - 0.5); // Перемешиваем
+            // Рандомная сортировка
+            state.flashcards = [...wordsToLearn].sort(() => Math.random() - 0.5); 
             state.flashcardIndex = 0;
             state.flashcardFlipped = false;
             navigateTo('flashcards');
         };
+        
         window.flipFlashcard = () => {
-            state.flashcardFlipped = !state.flashcardFlipped;
+            state.flashcardFlipped = true;
             renderApp();
         };
-        window.nextFlashcard = (step) => {
+
+        window.markFlashcardResult = async (knowIt) => {
+            const card = state.flashcards[state.flashcardIndex];
+            
+            if (knowIt) {
+                const newCount = (card.correctCount || 0) + 1;
+                
+                // Обновляем базу
+                if (isLocalMode || !fbDb) {
+                    let arr = JSON.parse(safeLocal.get('mag_words') || '[]');
+                    let idx = arr.findIndex(w => w.id === card.id);
+                    if (idx !== -1) { arr[idx].correctCount = newCount; safeLocal.set('mag_words', JSON.stringify(arr)); }
+                } else {
+                    try {
+                        const docRef = fbMethods.doc(fbDb, 'artifacts', appId, 'public', 'data', 'saved_words', card.id);
+                        await fbMethods.setDoc(docRef, { correctCount: newCount }, { merge: true });
+                    } catch(e) { }
+                }
+                
+                card.correctCount = newCount;
+                
+                // Если слово выучено 5 раз - убираем из текущей сессии
+                if (newCount >= 5) {
+                    showToast("Слово отлично усвоено! 🌟");
+                    state.flashcards.splice(state.flashcardIndex, 1);
+                    
+                    if (state.flashcards.length === 0) {
+                        showToast("Тренировка завершена! Вы выучили все слова.");
+                        goHome();
+                        return;
+                    }
+                    
+                    if (state.flashcardIndex >= state.flashcards.length) state.flashcardIndex = 0;
+                    state.flashcardFlipped = false;
+                    renderApp();
+                    return;
+                }
+            }
+
+            // Переход к следующей карточке (по циклу)
             state.flashcardFlipped = false;
-            state.flashcardIndex += step;
-            if (state.flashcardIndex < 0) state.flashcardIndex = state.flashcards.length - 1;
+            state.flashcardIndex++;
             if (state.flashcardIndex >= state.flashcards.length) state.flashcardIndex = 0;
             renderApp();
         };
@@ -863,60 +981,82 @@
                 `;
             } 
             else if (state.dashboardTab === 'words') {
+                // Группировка слов по статьям
+                const groupedWords = {};
+                state.words.forEach(w => {
+                    const t = w.articleTitle || 'Другие слова';
+                    if(!groupedWords[t]) groupedWords[t] = [];
+                    groupedWords[t].push(w);
+                });
+
+                const wordsToLearnCount = state.words.filter(w => (w.correctCount || 0) < 5).length;
+
                 container.innerHTML = `
                     <div class="bg-white dark:bg-gray-800 rounded-xl border border-mag-border dark:border-gray-700 shadow-sm overflow-hidden">
                         <div class="p-4 md:p-6 border-b border-mag-border dark:border-gray-700 bg-mag-highlight/30 dark:bg-gray-700/30 flex justify-between items-center flex-wrap gap-4">
                             <div>
                                 <h3 class="font-serif text-xl text-mag-primary dark:text-mag-primaryLight">Мой Словарь</h3>
-                                <span class="text-sm font-semibold bg-mag-primary dark:bg-mag-primaryLight text-white px-3 py-1 rounded-full mt-1 inline-block">${state.words.length} слов</span>
+                                <span class="text-sm font-semibold bg-mag-primary dark:bg-mag-primaryLight text-white px-3 py-1 rounded-full mt-1 inline-block">Всего: ${state.words.length}</span>
                             </div>
-                            ${state.words.length > 0 ? `
+                            ${wordsToLearnCount > 0 ? `
                             <button onclick="startFlashcards()" class="px-5 py-2.5 bg-gradient-to-r from-mag-primary to-mag-primaryLight text-white rounded-xl text-sm font-medium shadow-sm hover:shadow-md transition-all flex items-center gap-2 transform active:scale-95">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                                Тренировка
+                                Тренировка (${wordsToLearnCount})
                             </button>
-                            ` : ''}
+                            ` : (state.words.length > 0 ? `<span class="text-sm font-medium text-green-600 dark:text-green-400">Всё выучено! 🎉</span>` : '')}
                         </div>
-                        <ul class="divide-y divide-mag-border dark:divide-gray-700 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                            ${state.words.length === 0 ? `<li class="p-8">${emptyStateBlock("Словарь пуст", "Выделите любое слово во время чтения статьи, чтобы сохранить его сюда.")}</li>` : ''}
-                            ${state.words.map(w => {
-                                // Подсветка искомого слова в контексте
-                                const highlightedContext = w.context ? w.context.replace(new RegExp(`(${w.text})`, 'gi'), `<strong class="text-mag-text dark:text-gray-200 font-semibold">$1</strong>`) : '';
+                        
+                        <div class="max-h-[60vh] overflow-y-auto custom-scrollbar bg-gray-50 dark:bg-gray-900/20">
+                            ${state.words.length === 0 ? `<div class="p-8">${emptyStateBlock("Словарь пуст", "Выделите любое слово во время чтения статьи, чтобы сохранить его сюда.")}</div>` : ''}
+                            
+                            ${Object.keys(groupedWords).map(title => {
                                 return `
-                                <li class="p-4 md:p-6 flex justify-between items-start hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
-                                    <div class="pr-4 w-full">
-                                        <p class="text-lg md:text-xl font-medium text-mag-text dark:text-gray-100">${w.text}</p>
-                                        ${(w.translation || w.phonetics || w.partOfSpeech) ? `
-                                            <div class="text-base flex flex-wrap items-center gap-2 mt-2 mb-2">
-                                                ${w.phonetics ? `<span class="text-sm font-sans text-mag-muted dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded tracking-wide">${w.phonetics}</span>` : ''}
-                                                ${w.partOfSpeech ? `<span class="text-xs uppercase tracking-wider text-blue-600 dark:text-blue-400 font-sans font-bold">${w.partOfSpeech}</span>` : ''}
-                                                ${w.translation ? `<span class="font-sans text-mag-text dark:text-gray-300">— ${w.translation}</span>` : ''}
-                                            </div>
-                                        ` : ''}
+                                <div class="sticky top-0 z-10 px-4 md:px-6 py-2.5 bg-gray-100/95 dark:bg-gray-800/95 backdrop-blur-md border-y border-mag-border dark:border-gray-700 shadow-sm flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-mag-primary/60 dark:text-mag-primaryLight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                                    <span class="font-serif font-medium text-mag-primary dark:text-mag-primaryLight text-lg">${title}</span>
+                                </div>
+                                <ul class="divide-y divide-mag-border dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                    ${groupedWords[title].map(w => {
+                                        const highlightedContext = w.context ? w.context.replace(new RegExp(`(${w.text})`, 'gi'), `<strong class="text-mag-text dark:text-gray-200 font-bold bg-yellow-100 dark:bg-yellow-900/30 px-1 rounded-sm">$1</strong>`) : '';
+                                        const progressBars = [1,2,3,4,5].map(i => `<div class="w-1.5 h-1.5 rounded-full ${(w.correctCount || 0) >= i ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-600'}"></div>`).join('');
                                         
-                                        ${w.context ? `
-                                            <blockquote class="text-sm italic text-mag-muted dark:text-gray-500 mt-3 mb-2 border-l-2 border-mag-primary/30 dark:border-mag-primaryLight/30 pl-3 max-w-xl">
-                                                "${highlightedContext}"
-                                            </blockquote>
-                                        ` : ''}
-
-                                        <p class="text-xs text-mag-muted dark:text-gray-400 flex items-center gap-1.5 mt-2">
-                                            <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
-                                            <span class="truncate max-w-[150px] md:max-w-xs">${w.articleTitle}</span> • ${new Date(w.createdAt).toLocaleDateString('ru-RU')}
-                                        </p>
-                                    </div>
-                                    <div class="flex items-center gap-1 md:opacity-0 group-hover:opacity-100 focus-within:opacity-100 shrink-0 transition-opacity">
-                                        <button onclick="openEditModal('${w.id}', '${(w.translation || '').replace(/'/g, "\\'")}')" class="text-gray-400 hover:text-blue-500 transition-colors p-2" title="Редактировать перевод">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
-                                        </button>
-                                        <button onclick="deleteItem('word', '${w.id}')" class="text-gray-400 hover:text-red-500 transition-colors p-2" title="Удалить">
-                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                        </button>
-                                    </div>
-                                </li>
+                                        return `
+                                        <li class="p-4 md:p-6 flex justify-between items-start hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group">
+                                            <div class="pr-4 w-full">
+                                                <div class="flex items-center gap-4 mb-1">
+                                                    <p class="text-lg md:text-xl font-medium text-mag-text dark:text-gray-100">${w.text}</p>
+                                                    <div class="flex gap-1" title="Изучено на ${(w.correctCount || 0) * 20}%">${progressBars}</div>
+                                                </div>
+                                                
+                                                ${(w.translation || w.phonetics || w.partOfSpeech) ? `
+                                                    <div class="text-base flex flex-wrap items-center gap-2 mt-2 mb-3">
+                                                        ${w.phonetics ? `<span class="text-sm font-sans text-mag-muted dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded tracking-wide">${w.phonetics}</span>` : ''}
+                                                        ${w.partOfSpeech ? `<span class="text-xs uppercase tracking-wider text-blue-600 dark:text-blue-400 font-sans font-bold">${w.partOfSpeech}</span>` : ''}
+                                                        ${w.translation ? `<span class="font-sans text-mag-text dark:text-gray-300">— ${w.translation}</span>` : ''}
+                                                    </div>
+                                                ` : ''}
+                                                
+                                                ${w.context ? `
+                                                    <blockquote class="text-sm italic text-mag-muted dark:text-gray-500 mt-2 mb-1 border-l-2 border-mag-primary/30 dark:border-mag-primaryLight/30 pl-3 max-w-xl leading-relaxed">
+                                                        "${highlightedContext}"
+                                                    </blockquote>
+                                                ` : ''}
+                                            </div>
+                                            <div class="flex items-center gap-1 md:opacity-0 group-hover:opacity-100 focus-within:opacity-100 shrink-0 transition-opacity">
+                                                <button onclick="openEditModal('${w.id}', '${(w.translation || '').replace(/'/g, "\\'")}')" class="text-gray-400 hover:text-blue-500 transition-colors p-2" title="Редактировать перевод">
+                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                                                </button>
+                                                <button onclick="deleteItem('word', '${w.id}')" class="text-gray-400 hover:text-red-500 transition-colors p-2" title="Удалить">
+                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                                </button>
+                                            </div>
+                                        </li>
+                                        `;
+                                    }).join('')}
+                                </ul>
                                 `;
                             }).join('')}
-                        </ul>
+                        </div>
                     </div>
                 `;
             }
@@ -964,7 +1104,7 @@
                     </nav>
 
                     <div class="flex-grow flex flex-col items-center justify-center max-w-2xl mx-auto w-full px-2 fade-in pb-20">
-                        <div onclick="flipFlashcard()" class="w-full aspect-[4/3] md:aspect-[16/9] perspective-1000 cursor-pointer group">
+                        <div class="w-full aspect-[4/3] md:aspect-[16/9] perspective-1000">
                             <div class="w-full h-full relative transition-transform duration-500 transform-style-3d ${state.flashcardFlipped ? 'rotate-y-180' : ''}">
                                 
                                 <!-- Лицевая сторона (Английский) -->
@@ -972,10 +1112,6 @@
                                     <p class="text-xs font-bold uppercase tracking-widest text-mag-muted dark:text-gray-400 mb-4 md:mb-6">Слово</p>
                                     <h2 class="text-4xl md:text-5xl font-serif text-mag-text dark:text-gray-100 mb-4 md:mb-6">${card.text}</h2>
                                     ${card.context ? `<p class="text-sm md:text-base text-mag-muted dark:text-gray-400 italic max-w-md mx-auto line-clamp-4 leading-relaxed">"${contextWithBlank}"</p>` : ''}
-                                    <p class="absolute bottom-6 text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1.5 opacity-60">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"></path></svg> 
-                                        Нажмите, чтобы перевернуть
-                                    </p>
                                 </div>
 
                                 <!-- Обратная сторона (Русский) -->
@@ -993,13 +1129,21 @@
                         </div>
 
                         <!-- Кнопки управления карточками -->
-                        <div class="flex items-center gap-6 mt-10">
-                            <button onclick="nextFlashcard(-1)" class="p-4 rounded-full bg-white dark:bg-gray-800 border border-mag-border dark:border-gray-700 shadow-sm hover:shadow-md transition-all text-mag-muted dark:text-gray-400 hover:text-mag-primary dark:hover:text-mag-primaryLight active:scale-95">
-                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
-                            </button>
-                            <button onclick="nextFlashcard(1)" class="px-8 py-4 rounded-full bg-mag-primary hover:bg-mag-primaryHover dark:bg-mag-primaryLight text-white shadow-md hover:shadow-lg transition-all active:scale-95 font-medium flex items-center gap-2">
-                                Следующее <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
-                            </button>
+                        <div class="mt-8 md:mt-12 w-full max-w-sm mx-auto transition-opacity duration-300">
+                            ${!state.flashcardFlipped ? `
+                                <button onclick="flipFlashcard()" class="w-full py-4 rounded-2xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 shadow-md hover:shadow-lg transition-transform active:scale-95 font-medium text-base md:text-lg">
+                                    Показать перевод
+                                </button>
+                            ` : `
+                                <div class="flex gap-4 fade-in">
+                                    <button onclick="markFlashcardResult(false)" class="flex-1 py-4 rounded-2xl bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 font-medium active:scale-95 transition-transform shadow-sm text-base md:text-lg">
+                                        Не помню
+                                    </button>
+                                    <button onclick="markFlashcardResult(true)" class="flex-1 py-4 rounded-2xl bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 font-medium active:scale-95 transition-transform shadow-sm text-base md:text-lg">
+                                        Знаю
+                                    </button>
+                                </div>
+                            `}
                         </div>
                     </div>
                 `;
@@ -1046,7 +1190,30 @@
                         <button onclick="goHome()" class="text-mag-muted dark:text-gray-400 hover:text-mag-primary dark:hover:text-mag-primaryLight transition-colors flex items-center gap-2 font-medium">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg> <span class="hidden sm:inline">Назад</span>
                         </button>
-                        <div class="flex items-center gap-3 md:gap-4">
+                        
+                        <div class="flex items-center gap-2 md:gap-4">
+                            
+                            <!-- Таймер (Новая фишка) -->
+                            <div class="relative z-50">
+                                <div id="timer-display-text" onclick="toggleTimerMenu()" class="flex items-center gap-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-full border border-mag-border dark:border-gray-700 shadow-sm text-sm font-medium cursor-pointer text-mag-muted dark:text-gray-300 hover:text-mag-text dark:hover:text-white transition-colors select-none">
+                                    ⏱ Таймер
+                                </div>
+                                
+                                <div id="timer-menu" class="hidden absolute top-full mt-2 right-0 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-mag-border dark:border-gray-700 p-2 overflow-hidden">
+                                    <div id="timer-setup">
+                                        <p class="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2 px-2 pt-1">Начать фокус</p>
+                                        <button onclick="setTimer(15)" class="w-full text-left px-3 py-2 text-sm text-mag-text dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">15 минут</button>
+                                        <button onclick="setTimer(30)" class="w-full text-left px-3 py-2 text-sm text-mag-text dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">30 минут</button>
+                                        <button onclick="setTimer(45)" class="w-full text-left px-3 py-2 text-sm text-mag-text dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">45 минут</button>
+                                        <button onclick="setTimer(60)" class="w-full text-left px-3 py-2 text-sm text-mag-text dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">60 минут</button>
+                                    </div>
+                                    <div id="timer-controls" class="hidden">
+                                        <button id="timer-play-pause" onclick="toggleTimer()" class="w-full text-center px-3 py-2 text-sm font-medium text-mag-text dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg mb-1 transition-colors">⏸ Пауза</button>
+                                        <button onclick="stopTimer()" class="w-full text-center px-3 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors">⏹ Сбросить</button>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div class="flex items-center gap-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-full border border-mag-border dark:border-gray-700 shadow-sm">
                                 <button onclick="changeFontSize(-1)" class="text-mag-muted dark:text-gray-400 hover:text-mag-text dark:hover:text-white p-1 font-serif text-sm">A-</button>
                                 <div class="w-px h-4 bg-mag-border dark:bg-gray-600"></div>
