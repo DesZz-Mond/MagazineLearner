@@ -209,6 +209,21 @@
         </div>
     </div>
 
+    <!-- Модальное окно подтверждения удаления -->
+    <div id="confirm-modal" class="fixed inset-0 z-[100] hidden bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 fade-in">
+        <div class="bg-white dark:bg-gray-800 w-full max-w-sm p-6 rounded-2xl shadow-2xl border border-mag-border dark:border-gray-700 text-center">
+            <div class="w-12 h-12 rounded-full bg-red-50 dark:bg-red-900/20 text-red-500 mx-auto flex items-center justify-center mb-4">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </div>
+            <h3 class="font-serif text-xl text-mag-text dark:text-gray-100 mb-2">Вы уверены?</h3>
+            <p class="text-sm text-mag-muted dark:text-gray-400 mb-6">Это действие нельзя отменить. Данные будут удалены навсегда.</p>
+            <div class="flex justify-center gap-3">
+                <button onclick="window.closeConfirmModal()" class="flex-1 px-4 py-2.5 text-sm font-medium text-mag-muted dark:text-gray-400 hover:text-mag-text dark:hover:text-white transition-colors bg-gray-100 dark:bg-gray-700 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600">Отмена</button>
+                <button onclick="window.confirmDelete()" class="flex-1 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors shadow-sm">Удалить</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Всплывающее меню (Тултип) -->
     <div id="selection-tooltip" class="absolute z-50 hidden bg-gray-800 text-white rounded-xl shadow-2xl flex items-center p-1.5 tooltip-arrow mb-3 border border-gray-700" style="transform: translateX(-50%);">
         <button id="btn-listen" class="px-3 py-2 sm:py-1.5 text-sm hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap" title="Прослушать">
@@ -234,6 +249,7 @@
         </div>
     </div>
 
+    <!-- КЛАССИЧЕСКИЙ СКРИПТ: Обходит блокировку модулей в Android WebView -->
     <script>
         // Инициализация Telegram WebApp
         try {
@@ -266,6 +282,7 @@
             readerFontSize: 'text-base', 
             unsubs: [], 
             editingWordId: null,
+            itemToDelete: null,
             flashcards: [],
             flashcardIndex: 0,
             flashcardFlipped: false,
@@ -281,7 +298,8 @@
             progressBarContainer: document.getElementById('reading-progress-container'),
             progressBar: document.getElementById('reading-progress-bar'),
             editModal: document.getElementById('edit-modal'),
-            editInput: document.getElementById('edit-translation-input')
+            editInput: document.getElementById('edit-translation-input'),
+            confirmModal: document.getElementById('confirm-modal')
         };
 
         let fbApp, fbAuth, fbDb, fbMethods;
@@ -307,7 +325,6 @@
             "conjunction": "союз"
         };
 
-        // ТАЙМЕР
         window.toggleTimerMenu = function() {
             const menu = document.getElementById('timer-menu');
             if(menu) menu.classList.toggle('hidden');
@@ -429,6 +446,7 @@
             if (isLocalMode || !fbDb) {
                 state.articles = JSON.parse(window.safeLocal.get('mag_articles') || '[]').sort((a,b) => b.createdAt - a.createdAt);
                 state.words = JSON.parse(window.safeLocal.get('mag_words') || '[]').filter(w => w.profile === state.profile).sort((a,b) => b.createdAt - a.createdAt);
+                state.readArticles = JSON.parse(window.safeLocal.get('mag_read_articles') || '[]').filter(r => r.profile === state.profile);
                 
                 if(state.view === 'dashboard') {
                     if(state.dashboardTab === 'articles') window.renderApp();
@@ -440,6 +458,7 @@
             try {
                 const { collection, onSnapshot } = fbMethods;
                 
+                // Статьи
                 const articlesRef = collection(fbDb, 'artifacts', appId, 'public', 'data', 'articles');
                 const unsubArticles = onSnapshot(articlesRef, (snapshot) => {
                     const fetchedArticles = [];
@@ -450,6 +469,7 @@
                 });
                 state.unsubs.push(unsubArticles);
 
+                // Слова
                 const wordsRef = collection(fbDb, 'artifacts', appId, 'public', 'data', 'saved_words');
                 const unsubWords = onSnapshot(wordsRef, (snapshot) => {
                     const fetchedWords = [];
@@ -462,10 +482,60 @@
                 });
                 state.unsubs.push(unsubWords);
 
+                // Прочитанные статьи
+                const readRef = collection(fbDb, 'artifacts', appId, 'users', state.user.uid, 'read_articles');
+                const unsubRead = onSnapshot(readRef, (snapshot) => {
+                    const fetched = [];
+                    snapshot.forEach(doc => {
+                        if(doc.data().profile === state.profile) fetched.push({ id: doc.id, ...doc.data() });
+                    });
+                    state.readArticles = fetched;
+                    if(state.view === 'dashboard' && state.dashboardTab === 'articles') window.updateDashboardContent();
+                    if(state.view === 'reader') window.renderApp(); // Обновить кнопку в читалке
+                });
+                state.unsubs.push(unsubRead);
+
             } catch (error) { console.error("Listener error:", error); }
         };
 
-        // --- УМНЫЙ АЛГОРИТМ ПЕРЕВОДА ---
+        // Отметить статью прочитанной
+        window.toggleReadStatus = async function(articleId) {
+            if (!state.user || !state.profile) return;
+            const existing = state.readArticles.find(r => r.articleId === articleId);
+
+            if (existing) {
+                // Удалить
+                if (isLocalMode || !fbDb) {
+                    let arr = JSON.parse(window.safeLocal.get('mag_read_articles') || '[]');
+                    arr = arr.filter(r => r.id !== existing.id);
+                    window.safeLocal.set('mag_read_articles', JSON.stringify(arr));
+                    window.setupFirestoreListeners();
+                } else {
+                    const { doc, deleteDoc } = fbMethods;
+                    try {
+                        await deleteDoc(doc(fbDb, 'artifacts', appId, 'users', state.user.uid, 'read_articles', existing.id));
+                    } catch(e) {}
+                }
+                window.showToast("Отметка снята");
+            } else {
+                // Добавить
+                const itemObj = { articleId, profile: state.profile, createdAt: Date.now() };
+                if (isLocalMode || !fbDb) {
+                    itemObj.id = 'read_' + Date.now();
+                    let arr = JSON.parse(window.safeLocal.get('mag_read_articles') || '[]');
+                    arr.push(itemObj);
+                    window.safeLocal.set('mag_read_articles', JSON.stringify(arr));
+                    window.setupFirestoreListeners();
+                } else {
+                    const { collection, addDoc } = fbMethods;
+                    try {
+                        await addDoc(collection(fbDb, 'artifacts', appId, 'users', state.user.uid, 'read_articles'), itemObj);
+                    } catch(e) {}
+                }
+                window.showToast("Отмечено как прочитанное! 🎉");
+            }
+        };
+
         window.getSmartTranslation = async function(wordText, contextText) {
             try {
                 const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ru&dt=t&dt=bd&q=${encodeURIComponent(wordText)}`;
@@ -679,6 +749,23 @@
              try { await deleteDoc(docRef); window.showToast("Удалено"); } catch(e) { window.showToast("Ошибка удаления"); }
         };
 
+        window.openConfirmModal = function(type, id) {
+            state.itemToDelete = { type, id };
+            elements.confirmModal.classList.remove('hidden');
+        };
+
+        window.closeConfirmModal = function() {
+            elements.confirmModal.classList.add('hidden');
+            state.itemToDelete = null;
+        };
+
+        window.confirmDelete = async function() {
+            if (!state.itemToDelete) return;
+            const { type, id } = state.itemToDelete;
+            await window.deleteItem(type, id);
+            window.closeConfirmModal();
+        };
+
         window.submitArticle = async function(e) {
             e.preventDefault();
             if (!state.user) return window.showToast("Ошибка: вы не авторизованы.");
@@ -719,6 +806,47 @@
                 btn.disabled = false;
                 btn.classList.remove('opacity-75', 'cursor-not-allowed');
             }
+        };
+
+        window.playWordText = function(text) {
+            if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
+                window.speechSynthesis.cancel();
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-US';
+                window.speechSynthesis.speak(utterance);
+            } else {
+                window.showToast("Озвучка не поддерживается на этом устройстве");
+            }
+        };
+
+        window.filterDict = function(query) {
+            const q = query.toLowerCase();
+            document.querySelectorAll('.dict-item').forEach(li => {
+                const word = li.getAttribute('data-word');
+                const trans = li.getAttribute('data-trans');
+                if (word.includes(q) || trans.includes(q)) {
+                    li.classList.remove('hidden');
+                    li.classList.add('flex');
+                } else {
+                    li.classList.add('hidden');
+                    li.classList.remove('flex');
+                }
+            });
+
+            // Прячем пустые заголовки категорий
+            document.querySelectorAll('.dict-category').forEach(cat => {
+                const ul = cat.nextElementSibling;
+                const visibleItems = ul.querySelectorAll('.dict-item.flex');
+                if (visibleItems.length > 0) {
+                    cat.classList.remove('hidden');
+                    cat.classList.add('flex');
+                    ul.classList.remove('hidden');
+                } else {
+                    cat.classList.add('hidden');
+                    cat.classList.remove('flex');
+                    ul.classList.add('hidden');
+                }
+            });
         };
 
         window.handleSelection = function() {
@@ -804,14 +932,7 @@
                 
                 if (actionType === 'word') window.saveToFirestore('word', state.selectedText);
                 if (actionType === 'listen') {
-                    if (window.speechSynthesis && window.SpeechSynthesisUtterance) {
-                        window.speechSynthesis.cancel();
-                        const utterance = new SpeechSynthesisUtterance(state.selectedText);
-                        utterance.lang = 'en-US';
-                        window.speechSynthesis.speak(utterance);
-                    } else {
-                        window.showToast("Озвучка не поддерживается на этом устройстве");
-                    }
+                    window.playWordText(state.selectedText);
                 }
                 if (actionType === 'translate') {
                     const safeWord = encodeURIComponent(state.selectedText.trim().toLowerCase());
@@ -1065,28 +1186,33 @@
 
             if (state.dashboardTab === 'articles') {
                 container.innerHTML = `
-                    <div class="space-y-6">
-                        ${state.articles.length === 0 ? window.emptyStateBlock("Статей пока нет", "Здесь будут отображаться ваши статьи. Вы можете создать новую статью прямо сейчас.") : ''}
-                        ${state.articles.map(article => `
-                            <article onclick="window.openArticle('${article.id}')" class="relative group cursor-pointer bg-white dark:bg-gray-800 p-6 md:p-8 rounded-xl border border-mag-border dark:border-gray-700 hover:border-mag-primary dark:hover:border-mag-primaryLight hover:shadow-premium dark:hover:shadow-premium-dark transition-all">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        ${state.articles.length === 0 ? `<div class="col-span-full">${window.emptyStateBlock("Статей пока нет", "Здесь будут отображаться ваши статьи. Вы можете создать новую статью прямо сейчас.")}</div>` : ''}
+                        ${state.articles.map(article => {
+                            const isRead = state.readArticles && state.readArticles.some(r => r.articleId === article.id);
+                            return `
+                            <article onclick="window.openArticle('${article.id}')" class="relative group cursor-pointer bg-white dark:bg-gray-800 p-6 md:p-8 rounded-xl flex flex-col h-full border ${isRead ? 'border-green-500/40 dark:border-green-500/30 bg-green-50/30 dark:bg-green-900/10' : 'border-mag-border dark:border-gray-700 hover:border-mag-primary dark:hover:border-mag-primaryLight'} hover:shadow-premium dark:hover:shadow-premium-dark transition-all">
                                 <div class="flex justify-between items-center mb-4">
                                     <p class="text-xs font-semibold tracking-wider text-mag-muted dark:text-gray-400 uppercase">${new Date(article.createdAt).toLocaleDateString('ru-RU', {month: 'long', day: 'numeric'})}</p>
-                                    <div class="flex items-center gap-3">
-                                        <span class="text-xs text-mag-muted dark:text-gray-400 flex items-center gap-1.5 bg-gray-50 dark:bg-gray-700 px-2.5 py-1 rounded-full">
-                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                                            ${window.getReadingTime(article.content)} мин.
-                                        </span>
-                                        ${article.authorProfile === state.profile ? `
-                                            <button onclick="event.stopPropagation(); window.deleteItem('article', '${article.id}')" class="text-gray-400 hover:text-red-500 transition-colors p-1" title="Удалить статью">
-                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                            </button>
-                                        ` : ''}
-                                    </div>
+                                    ${article.authorProfile === state.profile ? `
+                                        <button onclick="event.stopPropagation(); window.deleteItem('article', '${article.id}')" class="text-gray-400 hover:text-red-500 transition-colors p-1" title="Удалить статью">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                        </button>
+                                    ` : ''}
                                 </div>
                                 <h3 class="font-serif text-2xl md:text-3xl text-mag-text dark:text-gray-100 group-hover:text-mag-primary dark:group-hover:text-mag-primaryLight transition-colors mb-3 leading-snug">${article.title}</h3>
-                                <p class="text-mag-muted dark:text-gray-400 line-clamp-2 leading-relaxed text-sm md:text-base">${article.content.replace(/<[^>]*>?/gm, '').substring(0, 180)}...</p>
+                                <p class="text-mag-muted dark:text-gray-400 line-clamp-3 leading-relaxed text-sm md:text-base mb-6">${article.content.replace(/<[^>]*>?/gm, '').substring(0, 180)}...</p>
+                                
+                                <div class="mt-auto pt-5 flex justify-between items-center border-t border-gray-100 dark:border-gray-700/50">
+                                    <span class="text-xs text-mag-muted dark:text-gray-400 flex items-center gap-1.5">
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                        ${window.getReadingTime(article.content)} мин. чтения
+                                    </span>
+                                    ${isRead ? `<span class="text-xs font-bold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-1.5 rounded-md flex items-center gap-1"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg> Прочитано</span>` : ''}
+                                </div>
                             </article>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </div>
                 `;
             } 
@@ -1101,32 +1227,42 @@
                 const wordsToLearnCount = state.words.filter(w => (w.correctCount || 0) < 5).length;
 
                 container.innerHTML = `
-                    <div class="bg-white dark:bg-gray-800 rounded-xl border border-mag-border dark:border-gray-700 shadow-sm overflow-hidden">
-                        <div class="p-4 md:p-6 border-b border-mag-border dark:border-gray-700 bg-mag-highlight/30 dark:bg-gray-700/30 flex justify-between items-center flex-wrap gap-4">
-                            <div>
-                                <h3 class="font-serif text-xl text-mag-primary dark:text-mag-primaryLight">Мой Словарь</h3>
-                                <span class="text-sm font-semibold bg-mag-primary dark:bg-mag-primaryLight text-white px-3 py-1 rounded-full mt-1 inline-block">Всего: ${state.words.length}</span>
+                    <div class="bg-white dark:bg-gray-800 rounded-xl border border-mag-border dark:border-gray-700 shadow-sm overflow-hidden flex flex-col h-[75vh]">
+                        <div class="p-4 md:p-6 border-b border-mag-border dark:border-gray-700 bg-mag-highlight/30 dark:bg-gray-700/30 shrink-0">
+                            <div class="flex justify-between items-center flex-wrap gap-4 mb-4">
+                                <div>
+                                    <h3 class="font-serif text-xl text-mag-primary dark:text-mag-primaryLight">Мой Словарь</h3>
+                                    <span class="text-sm font-semibold bg-mag-primary dark:bg-mag-primaryLight text-white px-3 py-1 rounded-full mt-1 inline-block">Всего: ${state.words.length}</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button id="btn-update-all" onclick="window.autoUpdateAllTranslations()" class="px-4 py-2.5 bg-gray-100 dark:bg-gray-700 text-mag-text dark:text-gray-200 rounded-xl text-sm font-medium shadow-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50" title="Получить новые варианты перевода для старых слов">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                                        <span class="hidden sm:inline">Обновить</span>
+                                    </button>
+                                    ${wordsToLearnCount > 0 ? `
+                                    <button onclick="window.startFlashcards()" class="px-5 py-2.5 bg-gradient-to-r from-mag-primary to-mag-primaryLight text-white rounded-xl text-sm font-medium shadow-sm hover:shadow-md transition-all flex items-center gap-2 transform active:scale-95">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                                        Тренировка (${wordsToLearnCount})
+                                    </button>
+                                    ` : (state.words.length > 0 ? `<span class="text-sm font-medium text-green-600 dark:text-green-400 px-3">Всё выучено! 🎉</span>` : '')}
+                                </div>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <button id="btn-update-all" onclick="window.autoUpdateAllTranslations()" class="px-4 py-2.5 bg-gray-100 dark:bg-gray-700 text-mag-text dark:text-gray-200 rounded-xl text-sm font-medium shadow-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-all flex items-center gap-2 transform active:scale-95 disabled:opacity-50" title="Получить новые варианты перевода для старых слов">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                                    <span class="hidden sm:inline">Обновить переводы</span>
-                                </button>
-                                ${wordsToLearnCount > 0 ? `
-                                <button onclick="window.startFlashcards()" class="px-5 py-2.5 bg-gradient-to-r from-mag-primary to-mag-primaryLight text-white rounded-xl text-sm font-medium shadow-sm hover:shadow-md transition-all flex items-center gap-2 transform active:scale-95">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
-                                    Тренировка (${wordsToLearnCount})
-                                </button>
-                                ` : (state.words.length > 0 ? `<span class="text-sm font-medium text-green-600 dark:text-green-400 px-3">Всё выучено! 🎉</span>` : '')}
+                            
+                            <!-- Поиск -->
+                            <div class="relative">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                                </div>
+                                <input type="text" id="dict-search" onkeyup="window.filterDict(this.value)" placeholder="Поиск слова или перевода..." class="w-full bg-white dark:bg-gray-900 border border-mag-border dark:border-gray-600 text-mag-text dark:text-gray-100 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:border-mag-primary dark:focus:border-mag-primaryLight transition-colors text-sm shadow-sm">
                             </div>
                         </div>
                         
-                        <div class="max-h-[60vh] overflow-y-auto custom-scrollbar bg-gray-50 dark:bg-gray-900/20">
-                            ${state.words.length === 0 ? `<div class="p-8">${window.emptyStateBlock("Словарь пуст", "Выделите любое слово во время чтения статьи, чтобы сохранить его сюда.")}</div>` : ''}
+                        <div class="overflow-y-auto custom-scrollbar flex-grow bg-gray-50 dark:bg-gray-900/20">
+                            ${state.words.length === 0 ? `<div class="p-8 h-full flex items-center justify-center">${window.emptyStateBlock("Словарь пуст", "Выделите любое слово во время чтения статьи, чтобы сохранить его сюда.")}</div>` : ''}
                             
                             ${Object.keys(groupedWords).map(title => {
                                 return `
-                                <div class="sticky top-0 z-10 px-4 md:px-6 py-2.5 bg-gray-100/95 dark:bg-gray-800/95 backdrop-blur-md border-y border-mag-border dark:border-gray-700 shadow-sm flex items-center gap-2">
+                                <div class="dict-category sticky top-0 z-10 px-4 md:px-6 py-2.5 bg-gray-100/95 dark:bg-gray-800/95 backdrop-blur-md border-y border-mag-border dark:border-gray-700 shadow-sm flex items-center gap-2">
                                     <svg class="w-4 h-4 text-mag-primary/60 dark:text-mag-primaryLight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
                                     <span class="font-serif font-medium text-mag-primary dark:text-mag-primaryLight text-lg">${title}</span>
                                 </div>
@@ -1146,18 +1282,20 @@
                                         const progressBars = [1,2,3,4,5].map(i => `<div class="w-1.5 h-1.5 rounded-full ${(w.correctCount || 0) >= i ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-600'}"></div>`).join('');
                                         
                                         return `
-                                        <li class="p-4 md:p-6 flex justify-between items-start hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group">
-                                            <div class="pr-4 w-full">
-                                                <div class="flex items-center gap-4 mb-1">
-                                                    <p class="text-lg md:text-xl font-medium text-mag-text dark:text-gray-100">${w.text}</p>
+                                        <li class="dict-item p-4 md:p-6 flex flex-col sm:flex-row justify-between items-start gap-4 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors group" data-word="${w.text.toLowerCase()}" data-trans="${(w.translation || '').toLowerCase()}">
+                                            <div class="w-full">
+                                                <div class="flex items-center gap-3 mb-1">
+                                                    <p class="text-xl md:text-2xl font-serif text-mag-text dark:text-gray-100">${w.text}</p>
                                                     <div class="flex gap-1" title="Изучено на ${(w.correctCount || 0) * 20}%">${progressBars}</div>
+                                                    <button onclick="window.playWordText('${cleanText}')" class="text-purple-400 hover:text-purple-600 transition-colors p-1.5 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/30 md:opacity-0 group-hover:opacity-100 focus:opacity-100" title="Озвучить">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                                                    </button>
                                                 </div>
                                                 
-                                                ${(w.translation || w.phonetics || w.partOfSpeech) ? `
-                                                    <div class="text-base flex flex-wrap items-center gap-2 mt-2 mb-3">
+                                                ${(w.translation || w.phonetics) ? `
+                                                    <div class="text-base flex flex-wrap items-center gap-2 mt-1.5 mb-3">
                                                         ${w.phonetics ? `<span class="text-sm font-sans text-mag-muted dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded tracking-wide">${w.phonetics}</span>` : ''}
-                                                        ${w.partOfSpeech ? `<span class="text-xs uppercase tracking-wider text-blue-600 dark:text-blue-400 font-sans font-bold">${w.partOfSpeech}</span>` : ''}
-                                                        ${w.translation ? `<span class="font-sans text-mag-text dark:text-gray-300">— ${w.translation}</span>` : ''}
+                                                        ${w.translation ? `<span class="font-sans font-medium text-mag-text dark:text-gray-300">${w.translation}</span>` : ''}
                                                     </div>
                                                 ` : ''}
                                                 
@@ -1167,6 +1305,7 @@
                                                     </blockquote>
                                                 ` : ''}
                                             </div>
+                                            <!-- Кнопки управления (на мобилке видны всегда, на ПК при наведении) -->
                                             <div class="flex items-center gap-1 md:opacity-0 group-hover:opacity-100 focus-within:opacity-100 shrink-0 transition-opacity">
                                                 <button onclick="window.refreshWordTranslation('${w.id}', '${cleanText}', '${cleanContext}')" class="text-gray-400 hover:text-green-500 transition-colors p-2" title="Обновить перевод">
                                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
@@ -1174,7 +1313,7 @@
                                                 <button onclick="window.openEditModal('${w.id}', '${(w.translation || '').replace(/'/g, "\\\\'")}')" class="text-gray-400 hover:text-blue-500 transition-colors p-2" title="Редактировать перевод">
                                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                                                 </button>
-                                                <button onclick="window.deleteItem('word', '${w.id}')" class="text-gray-400 hover:text-red-500 transition-colors p-2" title="Удалить">
+                                                <button onclick="window.openConfirmModal('word', '${w.id}')" class="text-gray-400 hover:text-red-500 transition-colors p-2" title="Удалить">
                                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                                 </button>
                                             </div>
@@ -1243,7 +1382,12 @@
                                 
                                 <div class="absolute inset-0 backface-hidden bg-white dark:bg-gray-800 rounded-3xl shadow-xl border border-mag-border dark:border-gray-700 flex flex-col items-center justify-center p-6 md:p-8 text-center">
                                     <p class="text-xs font-bold uppercase tracking-widest text-mag-muted dark:text-gray-400 mb-4 md:mb-6">Слово</p>
-                                    <h2 class="text-4xl md:text-5xl font-serif text-mag-text dark:text-gray-100 mb-4 md:mb-6">${card.text}</h2>
+                                    <div class="flex items-center justify-center gap-3 mb-4 md:mb-6">
+                                        <h2 class="text-4xl md:text-5xl font-serif text-mag-text dark:text-gray-100">${card.text}</h2>
+                                        <button onclick="window.playWordText('${card.text.replace(/'/g, "\\'")}')" class="text-purple-400 hover:text-purple-600 transition-colors p-2 rounded-full hover:bg-purple-50 dark:hover:bg-purple-900/30" title="Озвучить">
+                                            <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"></path></svg>
+                                        </button>
+                                    </div>
                                     ${card.context ? `<p class="text-sm md:text-base text-mag-muted dark:text-gray-400 italic max-w-md mx-auto line-clamp-4 leading-relaxed">"${contextWithBlank}"</p>` : ''}
                                 </div>
 
@@ -1316,6 +1460,8 @@
                 `;
             }
             else if (state.view === 'reader') {
+                const isRead = state.readArticles && state.readArticles.some(r => r.articleId === state.currentArticle.id);
+
                 html = `
                     <nav class="flex justify-between items-center mb-6 md:mb-10 pb-4 border-b border-mag-border dark:border-gray-700 sticky top-0 bg-mag-bg dark:bg-gray-900 z-40 pt-4 transition-colors">
                         <button onclick="window.goHome()" class="text-mag-muted dark:text-gray-400 hover:text-mag-primary dark:hover:text-mag-primaryLight transition-colors flex items-center gap-2 font-medium">
@@ -1324,7 +1470,6 @@
                         
                         <div class="flex items-center gap-2 md:gap-4">
                             
-                            <!-- Таймер (Новая фишка) -->
                             <div class="relative z-50">
                                 <div id="timer-display-text" onclick="window.toggleTimerMenu()" class="flex items-center gap-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-full border border-mag-border dark:border-gray-700 shadow-sm text-sm font-medium cursor-pointer text-mag-muted dark:text-gray-300 hover:text-mag-text dark:hover:text-white transition-colors select-none">
                                     ⏱ Таймер
@@ -1354,7 +1499,7 @@
                         </div>
                     </nav>
 
-                    <article class="max-w-3xl mx-auto w-full pb-48 fade-in px-2 sm:px-0">
+                    <article class="max-w-3xl mx-auto w-full pb-32 fade-in px-2 sm:px-0">
                         <header class="mb-10 md:mb-14 text-center">
                             <p class="text-xs md:text-sm font-semibold text-mag-muted dark:text-gray-400 tracking-widest uppercase mb-4">${new Date(state.currentArticle.createdAt).toLocaleDateString('ru-RU', {month: 'long', day: 'numeric', year: 'numeric'})}</p>
                             <h1 class="font-serif text-3xl md:text-5xl lg:text-6xl text-mag-text dark:text-gray-100 leading-tight md:leading-tight mb-6 md:mb-8">${state.currentArticle.title}</h1>
@@ -1366,8 +1511,13 @@
                         </header>
                         <div id="reader-content" class="article-content ${state.readerFontSize}">${state.currentArticle.content}</div>
                         <div class="mt-16 md:mt-24 text-center border-t border-mag-border dark:border-gray-700 pt-10">
-                            <p class="text-mag-muted dark:text-gray-400 italic font-serif text-lg md:text-xl">Конец статьи</p>
-                            <button onclick="window.goHome()" class="mt-6 inline-block bg-white dark:bg-gray-800 border border-mag-border dark:border-gray-700 text-mag-text dark:text-gray-200 px-6 md:px-8 py-3 rounded-full hover:border-mag-primary dark:hover:border-mag-primaryLight hover:text-mag-primary dark:hover:text-mag-primaryLight transition-colors shadow-sm font-medium text-sm md:text-base">Вернуться в Библиотеку</button>
+                            <p class="text-mag-muted dark:text-gray-400 italic font-serif text-lg md:text-xl mb-6">Конец статьи</p>
+                            <div class="flex flex-col sm:flex-row justify-center items-center gap-4">
+                                <button onclick="window.toggleReadStatus('${state.currentArticle.id}')" class="px-6 py-3 rounded-full font-medium text-sm md:text-base transition-colors shadow-sm ${isRead ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50' : 'bg-mag-primary text-white hover:bg-mag-primaryHover dark:bg-mag-primaryLight dark:hover:bg-[#8c6549]'}">
+                                    ${isRead ? '✓ Отмечено прочитанным' : 'Отметить как прочитанное'}
+                                </button>
+                                <button onclick="window.goHome()" class="px-6 py-3 bg-white dark:bg-gray-800 border border-mag-border dark:border-gray-700 text-mag-text dark:text-gray-200 rounded-full hover:border-mag-primary dark:hover:border-mag-primaryLight transition-colors shadow-sm font-medium text-sm md:text-base">Вернуться в Библиотеку</button>
+                            </div>
                         </div>
                     </article>
                 `;
