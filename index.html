@@ -945,7 +945,7 @@
         };
         
         window.startFlashcards = function() {
-            const wordsToLearn = state.words.filter(w => (w.correctCount || 0) < 5);
+            const wordsToLearn = state.words.filter(w => (w.correctCount || 0) < 1);
             if(wordsToLearn.length === 0) {
                 window.showToast("Вы выучили все слова! 🎉 Тренировка завершена.");
                 return;
@@ -980,7 +980,7 @@
                 
                 card.correctCount = newCount;
                 
-                if (newCount >= 5) {
+                if (newCount >= 1) {
                     window.showToast("Слово отлично усвоено! 🌟");
                     state.flashcards.splice(state.flashcardIndex, 1);
                     
@@ -1169,7 +1169,7 @@
                     groupedWords[t].push(w);
                 });
 
-                const wordsToLearnCount = state.words.filter(w => (w.correctCount || 0) < 5).length;
+                const wordsToLearnCount = state.words.filter(w => (w.correctCount || 0) < 1).length;
                 const learnedCount = state.words.length - wordsToLearnCount;
                 const learnProgress = state.words.length > 0 ? Math.round((learnedCount / state.words.length) * 100) : 0;
 
@@ -1221,8 +1221,8 @@
                                 </div>
                                 <ul class="divide-y divide-gray-100 dark:divide-gray-700/50 bg-white/50 dark:bg-gray-800/50">
                                     ${groupedWords[title].map(w => {
-                                        const cleanText = (w.text || '').replace(/'/g, "\\\\'");
-                                        const cleanContext = (w.context || '').replace(/'/g, "\\\\'");
+                                        const cleanText = (w.text || '').replace(/'/g, "\\'");
+                                        const cleanContext = (w.context || '').replace(/'/g, "\\'");
                                         let highlightedContext = w.context || '';
                                         
                                         if(w.context && w.text) {
@@ -1232,15 +1232,15 @@
                                             } catch(e) {}
                                         }
 
-                                        const isLearned = (w.correctCount || 0) >= 5;
-                                        const progressBars = [1,2,3,4,5].map(i => `<div class="w-1.5 h-1.5 rounded-full ${(w.correctCount || 0) >= i ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'}"></div>`).join('');
+                                        const isLearned = (w.correctCount || 0) >= 1;
+                                        const progressBars = [1].map(i => `<div class="w-1.5 h-1.5 rounded-full ${(w.correctCount || 0) >= i ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'}"></div>`).join('');
                                         
                                         return `
                                         <li class="p-6 flex flex-col md:flex-row md:items-center justify-between hover:bg-white dark:hover:bg-gray-700/30 transition-colors group gap-4 relative ${isLearned ? 'bg-green-50/30 dark:bg-green-900/5' : ''}">
                                             <div class="w-full md:w-auto flex-1">
                                                 <div class="flex items-center gap-4 mb-2">
                                                     <p class="text-xl font-bold ${isLearned ? 'text-green-700 dark:text-green-400' : 'text-mag-text dark:text-gray-100'}">${w.text}</p>
-                                                    <div class="flex gap-1 ml-2" title="Изучено на ${(w.correctCount || 0) * 20}%">${progressBars}</div>
+                                                    <div class="flex gap-1 ml-2" title="Изучено на ${(w.correctCount || 0) * 100}%">${progressBars}</div>
                                                     ${isLearned ? `<span class="ml-2 bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">Выучено</span>` : ''}
                                                 </div>
                                                 
@@ -1265,7 +1265,7 @@
                                                 <button onclick="window.refreshWordTranslation('${w.id}', '${cleanText}', '${cleanContext}')" class="text-mag-muted dark:text-gray-400 hover:text-green-500 transition-colors p-2 bg-white dark:bg-gray-700 md:bg-transparent rounded-xl shadow-sm md:shadow-none" title="Обновить перевод">
                                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
                                                 </button>
-                                                <button onclick="window.openEditModal('${w.id}', '${(w.translation || '').replace(/'/g, "\\\\'")}')" class="text-mag-muted dark:text-gray-400 hover:text-blue-500 transition-colors p-2 bg-white dark:bg-gray-700 md:bg-transparent rounded-xl shadow-sm md:shadow-none" title="Редактировать перевод">
+                                                <button onclick="window.openEditModal('${w.id}', '${(w.translation || '').replace(/'/g, "\\'")}')" class="text-mag-muted dark:text-gray-400 hover:text-blue-500 transition-colors p-2 bg-white dark:bg-gray-700 md:bg-transparent rounded-xl shadow-sm md:shadow-none" title="Редактировать перевод">
                                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
                                                 </button>
                                                 <button onclick="window.openDeleteModal('word', '${w.id}', '${cleanText}')" class="text-red-400 hover:text-red-600 transition-colors p-2 bg-white dark:bg-gray-700 md:bg-transparent rounded-xl shadow-sm md:shadow-none" title="Удалить">
